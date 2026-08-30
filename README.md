@@ -11,18 +11,26 @@ it's already loaded when you look.
 
 ## Architecture at a glance
 
-Two venues, two different adapters, one shared diff engine:
+Two venues, three venue *entries* (one venue has two independent channels), one
+shared diff engine:
 
-- **Science Museum IMAX** (`science_museum_imax`, `html_page_diff` adapter) - polls
-  the public `sciencemuseum.org.uk` listing page directly. Its robots.txt allows
-  content pages and there's no bot wall.
+- **Science Museum IMAX**
+  - `science_museum_imax` (`html_page_diff` adapter) - polls the public
+    `sciencemuseum.org.uk` listing page directly. Its robots.txt allows content
+    pages and there's no Cloudflare-style bot wall - **but the site does return
+    403 to GitHub Actions' IP ranges specifically** (confirmed: works fine from a
+    home IP, fails from CI). Left enabled in `config.yaml` (local/launchd), left
+    **disabled** in `config.github.yaml` since it can't work from there.
+  - `science_museum_imax_email` (`imap_newsletter` adapter) - backs it up via the
+    museum's own "Register for email alerts" signup on the same page. Works from
+    anywhere, including GitHub Actions, since it's just reading a mailbox.
 - **BFI IMAX** (`bfi_imax`, `imap_newsletter` adapter) - BFI's actual ticketing site
   (`whatson.bfi.org.uk`) is Cloudflare-challenge-protected and BFI's terms prohibit
   automated access, so **it is never scraped or automated**. Instead, this adapter
   reads your own mailbox (read-only IMAP) for the official "BFI IMAX emails" alert
   you sign up for once, and turns matching emails into alerts.
 
-Both adapters return a normalized `RawListing`; a pure diff function
+All adapters return a normalized `RawListing`; a pure diff function
 (`engine/diff.py`) classifies each one against SQLite-persisted state into an
 event type + urgency; a `Dispatcher` fans alerts out to every enabled notification
 channel independently. Adding a third venue later is one config block (plus a new
@@ -32,8 +40,9 @@ adapter file only if it needs a genuinely new fetch strategy).
 
 - Python 3.9+
 - A mailbox with IMAP access (e.g. Gmail with an [app password](https://myaccount.google.com/apppasswords))
-- Sign up for BFI IMAX's own email alert **before** enabling the `bfi_imax` venue:
-  [bfi.org.uk/bfi-imax](https://www.bfi.org.uk/bfi-imax) -> "Sign up to BFI IMAX emails"
+- Sign up for **both** official email alerts before enabling their venues:
+  - BFI IMAX: [bfi.org.uk/bfi-imax](https://www.bfi.org.uk/bfi-imax) -> "Sign up to BFI IMAX emails"
+  - Science Museum IMAX: [sciencemuseum.org.uk/see-and-do/dune-part-three](https://www.sciencemuseum.org.uk/see-and-do/dune-part-three) -> "Register for email alerts"
 
 ## Setup
 

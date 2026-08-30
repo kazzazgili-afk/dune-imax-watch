@@ -31,6 +31,23 @@ venues:
       register_interest_markers: ["register your interest", "register interest"]
       showtime_container_selector: ".showtime, .performance, [data-showtime]"  # adjust once live markup is seen
 
+  - id: science_museum_imax_email
+    name: "Science Museum IMAX (Email Alert)"
+    enabled: true
+    venue_type: imap_newsletter
+    poll_interval_minutes: 60
+    imap:
+      folder: "INBOX"
+      sender_filter: ["sciencemuseum.org.uk"]  # confirm the real sender once their confirmation email arrives
+      subject_keywords: ["imax", "dune", "on sale", "tickets", "ronson"]
+      lookback_days_on_first_run: 30
+    # Backs up the html_page_diff venue above with the museum's own "Register for
+    # email alerts" signup (sciencemuseum.org.uk/see-and-do/dune-part-three). Added
+    # after discovering sciencemuseum.org.uk 403s requests from GitHub Actions' IP
+    # ranges specifically (works fine from a home IP) - this email channel gives
+    # full coverage regardless of where it's polled from. Sign up for the museum's
+    # alert (same page as above) before enabling this venue.
+
   - id: bfi_imax
     name: "BFI IMAX (Southbank)"
     enabled: true

@@ -26,13 +26,28 @@ polling:
 venues:
   - id: science_museum_imax
     name: "Science Museum IMAX (The Ronson Theatre)"
-    enabled: true
+    enabled: false   # sciencemuseum.org.uk returns 403 to GitHub Actions' IP ranges
+    # specifically (confirmed - works fine from a home IP, e.g. via the launchd
+    # deployment). Rather than work around that block, this venue is covered on
+    # GitHub via the email-alert venue below instead. Kept here, disabled, in case
+    # the block is ever lifted and direct polling becomes viable again from CI.
     venue_type: html_page_diff
     url: "https://www.sciencemuseum.org.uk/see-and-do/dune-part-three"
     poll_interval_minutes: 20
     parser_hints:
       register_interest_markers: ["register your interest", "register interest"]
       showtime_container_selector: ".showtime, .performance, [data-showtime]"
+
+  - id: science_museum_imax_email
+    name: "Science Museum IMAX (Email Alert)"
+    enabled: true
+    venue_type: imap_newsletter
+    poll_interval_minutes: 60
+    imap:
+      folder: "INBOX"
+      sender_filter: ["sciencemuseum.org.uk"]  # confirm the real sender once their confirmation email arrives
+      subject_keywords: ["imax", "dune", "on sale", "tickets", "ronson"]
+      lookback_days_on_first_run: 30
 
   - id: bfi_imax
     name: "BFI IMAX (Southbank)"

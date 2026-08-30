@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.gilikazzaz.dune-watch</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/gilikazzaz/Documents/coding projects/dune-imax-watch/.venv/bin/python</string>
+        <string>-m</string>
+        <string>dune_watch</string>
+        <string>run</string>
+        <string>--once</string>
+        <string>--config</string>
+        <string>/Users/gilikazzaz/Documents/coding projects/dune-imax-watch/config/config.yaml</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/gilikazzaz/Documents/coding projects/dune-imax-watch</string>
+
+    <!-- Re-invokes the process every 20 minutes; each venue still respects its own
+         poll_interval_minutes inside the app - this just controls how often the
+         process itself is launched. StartInterval survives sleep/wake better than
+         cron, and launchd can be told to restart on crash via KeepAlive if needed. -->
+    <key>StartInterval</key>
+    <integer>1200</integer>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string>/Users/gilikazzaz/Library/Logs/dune-watch/stdout.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/gilikazzaz/Library/Logs/dune-watch/stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+
+    <key>ProcessType</key>
+    <string>Background</string>
+</dict>
+</plist>

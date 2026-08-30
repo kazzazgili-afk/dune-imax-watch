@@ -1,0 +1,70 @@
+# Config variant for running on GitHub Actions (headless, stateless runner).
+# Differences from config.example.yaml:
+#   - macos_native and auto_open_booking_link are disabled (no display/browser in CI)
+#   - state db_path lives under state/ and is committed back to the repo each run by
+#     the workflow (.github/workflows/poll.yml), since Actions runners don't persist
+#     anything between runs on their own
+#   - no secrets_file: credentials come from GitHub Actions Secrets as real env vars
+
+film:
+  title: "Dune: Part Three"
+  keywords: ["dune", "dune: part three", "dune part 3"]
+  format_keywords: ["imax 70mm", "70mm", "imax"]
+  opening_window:
+    start: "2026-12-17"
+    end: "2027-02-28"
+
+polling:
+  default_interval_minutes: 20
+  jitter_seconds: 90
+  user_agent: "dune-imax-watch/0.1 (personal use; contact: kazzazgili@gmail.com)"
+  http_timeout_seconds: 15
+  http_max_retries: 2
+  failing_source_alert_after_cycles: 6
+  batch_threshold: 3
+
+venues:
+  - id: science_museum_imax
+    name: "Science Museum IMAX (The Ronson Theatre)"
+    enabled: true
+    venue_type: html_page_diff
+    url: "https://www.sciencemuseum.org.uk/see-and-do/dune-part-three"
+    poll_interval_minutes: 20
+    parser_hints:
+      register_interest_markers: ["register your interest", "register interest"]
+      showtime_container_selector: ".showtime, .performance, [data-showtime]"
+
+  - id: bfi_imax
+    name: "BFI IMAX (Southbank)"
+    enabled: true
+    venue_type: imap_newsletter
+    poll_interval_minutes: 60
+    imap:
+      folder: "INBOX"
+      sender_filter: ["boxoffice@bfi.org.uk", "news@bfi.org.uk"]
+      subject_keywords: ["imax", "dune", "on sale", "tickets"]
+      lookback_days_on_first_run: 30
+
+state:
+  db_path: "./state/github_state.db"   # tracked in git, committed by the workflow when it changes
+
+notifications:
+  channels:
+    macos_native:
+      enabled: false   # no display on a GitHub Actions runner
+    ntfy:
+      enabled: true
+      topic_env_var: "DUNE_WATCH_NTFY_TOPIC"
+      server: "https://ntfy.sh"
+    email_smtp:
+      enabled: true
+      smtp_host: "smtp.gmail.com"
+      smtp_port: 587
+      use_tls: true
+      username_env_var: "DUNE_WATCH_SMTP_USER"
+      password_env_var: "DUNE_WATCH_SMTP_PASS"
+      from_addr: "kazzazgili@gmail.com"
+      to_addrs: ["kazzazgili@gmail.com"]
+  auto_open_booking_link:
+    enabled: false   # no browser on a GitHub Actions runner
+    min_urgency: "HIGH"

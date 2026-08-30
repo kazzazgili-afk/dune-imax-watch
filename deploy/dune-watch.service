@@ -1,0 +1,11 @@
+[Unit]
+Description=Dune IMAX 70mm ticket watcher (single-shot poll)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dunewatch
+WorkingDirectory=/opt/dune-imax-watch
+EnvironmentFile=/opt/dune-imax-watch/deploy/dune-watch.env
+ExecStart=/opt/dune-imax-watch/.venv/bin/python -m dune_watch run --once --config /opt/dune-imax-watch/config/config.yaml

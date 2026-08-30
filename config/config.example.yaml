@@ -1,0 +1,86 @@
+# dune-imax-watch configuration
+# Copy to config.yaml and fill in. Secrets are NOT stored here - see secrets.example.env.
+
+film:
+  title: "Dune: Part Three"
+  keywords: ["dune", "dune: part three", "dune part 3"]
+  format_keywords: ["imax 70mm", "70mm", "imax"]
+  opening_window:
+    start: "2026-12-17"
+    end: "2027-02-28"   # how far ahead to consider a showtime "in scope"
+
+polling:
+  default_interval_minutes: 20
+  jitter_seconds: 90          # avoid hammering exactly on the interval boundary
+  user_agent: "dune-imax-watch/0.1 (personal use; contact: kazzazgili@gmail.com)"
+  http_timeout_seconds: 15
+  http_max_retries: 2
+  failing_source_alert_after_cycles: 6   # alert once a source has failed N cycles in a row
+  batch_threshold: 3                     # N+ brand-new listings in one cycle = "batch release"
+
+venues:
+  - id: science_museum_imax
+    name: "Science Museum IMAX (The Ronson Theatre)"
+    enabled: true
+    venue_type: html_page_diff
+    url: "https://www.sciencemuseum.org.uk/see-and-do/dune-part-three"
+    poll_interval_minutes: 20
+    # robots.txt for sciencemuseum.org.uk only disallows /admin, /search, /user* -
+    # this content page is allowed. Confirmed 200 OK, no Cloudflare challenge.
+    parser_hints:
+      register_interest_markers: ["register your interest", "register interest"]
+      showtime_container_selector: ".showtime, .performance, [data-showtime]"  # adjust once live markup is seen
+
+  - id: bfi_imax
+    name: "BFI IMAX (Southbank)"
+    enabled: true
+    venue_type: imap_newsletter
+    poll_interval_minutes: 60          # checking your own mailbox has no site rate-limit concern
+    imap:
+      folder: "INBOX"                  # or a dedicated filter folder, e.g. "BFI IMAX"
+      sender_filter: ["boxoffice@bfi.org.uk", "news@bfi.org.uk"]  # confirm the real sender after signup
+      subject_keywords: ["imax", "dune", "on sale", "tickets"]
+      lookback_days_on_first_run: 30
+    # IMPORTANT: whatson.bfi.org.uk is Cloudflare-challenge-protected (confirmed via
+    # cf-mitigated: challenge response header) and BFI's terms prohibit automated/
+    # robotic access. This adapter never touches that domain - it only reads mail
+    # you already receive, from the official "Sign up to BFI IMAX emails" alert at
+    # bfi.org.uk/bfi-imax. Sign up there manually before enabling this venue.
+
+  - id: vue_manchester_example
+    name: "Vue Manchester (EXAMPLE - DISABLED)"
+    enabled: false
+    venue_type: html_page_diff
+    url: "https://www.myvue.com/cinema/manchester-printworks/showing/dune-part-three"
+    poll_interval_minutes: 30
+    # WARNING: Vue's own robots.txt disallows /book-tickets/, /showing/, /screening/.
+    # Do NOT enable this without first re-checking robots.txt and terms of use.
+    # Kept here only as a template for adding a future venue. Also out of scope for
+    # "London" - Manchester Printworks is the third UK 70mm venue, not a London one.
+
+state:
+  db_path: "./state.db"
+
+notifications:
+  channels:
+    macos_native:
+      enabled: true
+    ntfy:
+      enabled: true
+      topic_env_var: "DUNE_WATCH_NTFY_TOPIC"     # secret lives in env, not here
+      server: "https://ntfy.sh"
+    email_smtp:
+      enabled: true
+      smtp_host: "smtp.gmail.com"
+      smtp_port: 587
+      use_tls: true
+      username_env_var: "DUNE_WATCH_SMTP_USER"
+      password_env_var: "DUNE_WATCH_SMTP_PASS"
+      from_addr: "kazzazgili@gmail.com"
+      to_addrs: ["kazzazgili@gmail.com"]
+  auto_open_booking_link:
+    enabled: true
+    min_urgency: "HIGH"   # HIGH or CRITICAL trigger webbrowser.open(); INFO never does.
+                           # Set enabled: false on a headless cloud deployment (no browser/display).
+
+secrets_file: "./config/secrets.env"   # optional local .env-style file, gitignored, loaded at startup

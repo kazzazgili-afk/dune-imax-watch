@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+config/config.yaml
+config/secrets.env
+deploy/dune-watch.env
+
+state.db
+state.dry_run.db
+*.log

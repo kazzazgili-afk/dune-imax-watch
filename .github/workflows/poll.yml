@@ -1,0 +1,46 @@
+name: Poll Dune IMAX watch
+
+on:
+  schedule:
+    # GitHub may delay or occasionally skip scheduled runs under high platform load -
+    # this is a best-effort interval, not a guarantee.
+    - cron: "*/20 * * * *"
+  workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+
+concurrency:
+  group: dune-watch-poll
+  cancel-in-progress: false   # never cancel a run that might be mid-commit
+
+permissions:
+  contents: write   # needed to commit the updated state file back to the repo
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -r requirements.txt
+
+      - name: Run one poll cycle
+        env:
+          DUNE_WATCH_NTFY_TOPIC: ${{ secrets.DUNE_WATCH_NTFY_TOPIC }}
+          DUNE_WATCH_SMTP_USER: ${{ secrets.DUNE_WATCH_SMTP_USER }}
+          DUNE_WATCH_SMTP_PASS: ${{ secrets.DUNE_WATCH_SMTP_PASS }}
+          DUNE_WATCH_IMAP_HOST: ${{ secrets.DUNE_WATCH_IMAP_HOST }}
+          DUNE_WATCH_IMAP_PORT: ${{ secrets.DUNE_WATCH_IMAP_PORT }}
+          DUNE_WATCH_IMAP_USER: ${{ secrets.DUNE_WATCH_IMAP_USER }}
+          DUNE_WATCH_IMAP_PASS: ${{ secrets.DUNE_WATCH_IMAP_PASS }}
+        run: python -m dune_watch run --once --config config/config.github.yaml
+
+      - name: Commit updated state if it changed
+        run: |
+          git config user.name "dune-watch-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add state/github_state.db
+          git diff --cached --quiet || git commit -m "chore: update poll state [skip ci]"
+          git push

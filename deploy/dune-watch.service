@@ -1,11 +1,31 @@
 [Unit]
-Description=Dune IMAX 70mm ticket watcher (single-shot poll)
+Description=Dune IMAX 70mm ticket watcher (continuous, hot-window aware)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=oneshot
+# A long-running loop rather than a timer-driven one-shot: per-venue scheduling lives
+# inside the process, which is what lets the Science Museum page drop to a 20s cadence
+# during an on-sale (its robots.txt Crawl-delay, enforced in util/robots.py) while the
+# mailbox venues stay slower. A systemd timer cannot express that.
+Type=simple
 User=dunewatch
 WorkingDirectory=/opt/dune-imax-watch
 EnvironmentFile=/opt/dune-imax-watch/deploy/dune-watch.env
-ExecStart=/opt/dune-imax-watch/.venv/bin/python -m dune_watch run --once --config /opt/dune-imax-watch/config/config.yaml
+ExecStart=/opt/dune-imax-watch/.venv/bin/python -m dune_watch run --loop --config /opt/dune-imax-watch/config/config.yaml
+
+# The whole point of this deployment is that it never silently stops.
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+
+# Modest hardening: this process only needs to read its own directory and reach the net.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/dune-imax-watch
+
+[Install]
+WantedBy=multi-user.target

@@ -118,3 +118,105 @@ def test_fingerprint_is_stable_for_identical_html(mocker, load_fixture_html):
     adapter2 = _adapter_with_response(html, mocker)
     listings2 = adapter2.fetch()
     assert listings1[0].raw_fingerprint == listings2[0].raw_fingerprint
+
+
+# --- Real-page regressions -------------------------------------------------------
+# These run against pages captured live from sciencemuseum.org.uk on 2026-09-22.
+# The Odyssey plays on the same screen from the same template Dune will use, so it is
+# the closest thing to a dress rehearsal available before Dune goes on sale.
+
+def test_live_dune_page_reads_as_register_interest(mocker, load_fixture_html):
+    html = load_fixture_html("science_museum_dune_register_interest_live.html")
+    adapter = _adapter_with_response(html, mocker)
+    listings = adapter.fetch()
+
+    assert len(listings) == 1
+    assert listings[0].availability == "register_interest"
+    assert listings[0].booking_link is None
+
+
+def test_live_odyssey_page_is_sold_out_despite_having_a_booking_cta(mocker, load_fixture_html):
+    """The Odyssey page carries a working 'Check ticket availability' CTA *and* says
+    'currently sold out'. Sold-out wording must win, or a sold-out film would read as
+    bookable forever."""
+    html = load_fixture_html("science_museum_odyssey_live.html")
+    adapter = _adapter_with_response(html, mocker)
+    listings = adapter.fetch()
+
+    assert len(listings) == 1
+    assert listings[0].availability == "sold_out"
+    # The CTA is still captured, so an alert can link straight to the calendar.
+    assert "kid=794" in listings[0].booking_link
+
+
+def test_dune_on_sale_is_detected_even_though_register_interest_text_remains(
+    mocker, load_fixture_html
+):
+    """THE decisive case.
+
+    When tickets are released the venue adds a booking CTA but keeps the
+    register-interest block for later dates. The original parser only looked for the
+    register-interest marker, so it stayed pinned at 'register_interest' and the
+    on-sale produced nothing louder than an INFO 'Listing updated'.
+    """
+    html = load_fixture_html("science_museum_dune_onsale.html")
+    adapter = _adapter_with_response(html, mocker)
+    listings = adapter.fetch()
+
+    assert len(listings) == 1
+    listing = listings[0]
+    assert listing.availability == "bookable"
+    assert listing.booking_link is not None
+    assert "kid=812" in listing.booking_link
+    assert listing.format_label is not None
+
+
+def test_account_and_general_admission_links_are_not_mistaken_for_booking(
+    mocker, load_fixture_html
+):
+    """The live pages link to my.sciencemuseum.org.uk/account/create/brief ('Newsletter',
+    'Sign up'), /account/login ('My bookings') and tickets.sciencemuseum.org.uk ('free
+    general admission tickets'). Matching any of those would fire a permanent false
+    on-sale on a page with no film tickets at all."""
+    html = load_fixture_html("science_museum_dune_register_interest_live.html")
+    adapter = _adapter_with_response(html, mocker)
+    listing = adapter.fetch()[0]
+
+    assert listing.booking_link is None
+    assert listing.availability == "register_interest"
+
+
+def test_full_pipeline_register_interest_to_on_sale_is_critical(
+    mocker, load_fixture_html, fresh_state_db
+):
+    """End-to-end through the real diff engine and state store: the transition the whole
+    tool exists to catch must come out CRITICAL with a usable booking link."""
+    from dune_watch.engine.diff import build_alert, classify_transition
+    from dune_watch.models import BatchContext
+
+    app_config = make_app_config()
+    store = fresh_state_db
+
+    before = _adapter_with_response(
+        load_fixture_html("science_museum_dune_register_interest_live.html"), mocker
+    ).fetch()[0]
+    assert classify_transition(None, before, BatchContext(False), app_config.film.format_keywords) == (
+        "new_listing", "HIGH",
+    )
+    store.upsert_listing(before)
+
+    after = _adapter_with_response(
+        load_fixture_html("science_museum_dune_onsale.html"), mocker
+    ).fetch()[0]
+    assert after.listing_key() == before.listing_key(), "must diff against the same row"
+
+    result = classify_transition(
+        store.get_listing(after.listing_key()), after, BatchContext(False),
+        app_config.film.format_keywords,
+    )
+    assert result == ("on_sale_detected", "CRITICAL")
+
+    alert = build_alert(after, *result)
+    assert alert.urgency == "CRITICAL"
+    assert "TICKETS ON SALE" in alert.title
+    assert "kid=812" in alert.body

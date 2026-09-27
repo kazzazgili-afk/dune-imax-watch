@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dune_watch.adapters.base import Adapter
+from dune_watch.adapters.bluesky_feed import BlueskyFeedAdapter
 from dune_watch.adapters.html_page_diff import HtmlPageDiffAdapter
 from dune_watch.adapters.imap_newsletter import ImapNewsletterAdapter
 from dune_watch.config import AppConfig, VenueConfig
@@ -8,6 +9,7 @@ from dune_watch.config import AppConfig, VenueConfig
 ADAPTER_REGISTRY: dict[str, type[Adapter]] = {
     "html_page_diff": HtmlPageDiffAdapter,
     "imap_newsletter": ImapNewsletterAdapter,
+    "bluesky_feed": BlueskyFeedAdapter,
     # future: "json_api": JsonApiAdapter, "rss": RssAdapter
 }
 

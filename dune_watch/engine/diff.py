@@ -7,7 +7,11 @@ from typing import Optional
 
 from dune_watch.models import Alert, BatchContext, RawListing, StoredListing
 
-_NOT_YET_BOOKABLE = {"unknown", "unavailable", "sold_out", "register_interest"}
+_NOT_YET_BOOKABLE = {"unknown", "unavailable", "sold_out", "register_interest", "queue_active"}
+
+# Sources whose items are immutable once published: an email or a post never changes,
+# so each one is only ever newsworthy the first time it is seen.
+_MESSAGE_SOURCES = {"imap_newsletter", "bluesky_feed"}
 
 
 def _is_imax_or_70mm(listing: RawListing, format_keywords: list[str]) -> bool:
@@ -29,14 +33,20 @@ def classify_transition(
     (engine/poller.py) - it's a property of how many new listings appeared together
     in this cycle, not of any single listing.
     """
-    if new.source_type == "imap_newsletter":
-        # Every matching newsletter email is inherently unseen before (Message-ID is
-        # unique), so any match from the official BFI alert is worth surfacing.
-        return ("sale_announced", "HIGH")
-
     is_imax = _is_imax_or_70mm(new, format_keywords)
 
+    if new.source_type in _MESSAGE_SOURCES:
+        # Immutable once published, so only newsworthy the first time we see it. Without
+        # this guard every matching item in the lookback window re-alerts on every poll.
+        if old is not None:
+            return None
+        if new.availability == "bookable":
+            return ("on_sale_detected", "CRITICAL" if is_imax else "HIGH")
+        return ("sale_announced", "HIGH")
+
     if old is None:
+        if new.availability == "queue_active":
+            return ("queue_active", "CRITICAL")
         if is_imax and batch_context.is_batch:
             return ("batch_release", "CRITICAL")
         if is_imax:
@@ -44,7 +54,11 @@ def classify_transition(
         return ("new_listing", "INFO")
 
     if old.availability in _NOT_YET_BOOKABLE and new.availability == "bookable":
-        return ("availability_change", "CRITICAL" if is_imax else "HIGH")
+        return ("on_sale_detected", "CRITICAL" if is_imax else "HIGH")
+
+    # A waiting room appearing in front of booking means a sale is imminent or running.
+    if new.availability == "queue_active" and old.availability != "queue_active":
+        return ("queue_active", "CRITICAL")
 
     if old.availability == "register_interest" and new.availability != "register_interest":
         return ("sale_announced", "HIGH")

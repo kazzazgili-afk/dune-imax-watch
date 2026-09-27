@@ -1,0 +1,75 @@
+{
+  "feed": [
+    {
+      "post": {
+        "uri": "at://did:plc:vfz6n4by6ayu2ybwpq6qemik/app.bsky.feed.post/dune3onsale",
+        "record": {
+          "text": "\ud83c\udfac The adventure isn't over yet\u2026\n\nNew screenings of Dune: Part Three in magnificent IMAX 70mm are now on sale. \n\nExperience it on the big screen - book your tickets now: https://bit.ly/4w4CZhf\n\n#TheOdyssey #IMAX70mm #ScienceMuseum\n\n\u00a9 2025 UNIVERSAL STUDIOS"
+        },
+        "author": {
+          "handle": "sciencemuseum.org.uk"
+        },
+        "embed": {
+          "external": {
+            "uri": "https://my.sciencemuseum.org.uk/events?view=calendar&kid=812"
+          }
+        }
+      }
+    },
+    {
+      "post": {
+        "uri": "at://did:plc:vfz6n4by6ayu2ybwpq6qemik/app.bsky.feed.post/3msxqrzbvf32m",
+        "record": {
+          "text": "\ud83c\udf15 Still over the moon after the eclipse?\n\nKeep exploring space at the Science Museum this summer. \n\nSee a real piece of the Moon, join our free daily Space on a Sphere shows, enjoy a family Space Show or follow our free space lovers' trail: https://bit.ly/4hxwksu"
+        },
+        "author": {
+          "handle": "sciencemuseum.org.uk"
+        }
+      }
+    },
+    {
+      "post": {
+        "uri": "at://did:plc:vfz6n4by6ayu2ybwpq6qemik/app.bsky.feed.post/3mrxheamlwa2o",
+        "record": {
+          "text": "\ud83c\udfac The adventure isn't over yet\u2026\n\nNew screenings of The Odyssey in magnificent IMAX 70mm are now on sale. \n\nExperience it on the big screen - book your tickets now: https://bit.ly/4w4CZhf\n\n#TheOdyssey #IMAX70mm #ScienceMuseum\n\n\u00a9 2025 UNIVERSAL STUDIOS"
+        },
+        "author": {
+          "handle": "sciencemuseum.org.uk"
+        }
+      }
+    },
+    {
+      "post": {
+        "uri": "at://did:plc:vfz6n4by6ayu2ybwpq6qemik/app.bsky.feed.post/3mruiog5qee2v",
+        "record": {
+          "text": "\ud83c\udf89Happy International Day of Friendship!  \n\nRound up your favourite people and take on the world of gaming at Power Up. From Pac-Man to Mario, there's something for every player.  \n\nBook your tickets now: https://bit.ly/4yPFk2c\n\n#ScienceMuseum #GamingExperience #FunDayOut "
+        },
+        "author": {
+          "handle": "sciencemuseum.org.uk"
+        }
+      }
+    },
+    {
+      "post": {
+        "uri": "at://did:plc:vfz6n4by6ayu2ybwpq6qemik/app.bsky.feed.post/3mrs5dkrxxq2d",
+        "record": {
+          "text": "Immerse yourself in the world of bubbles with Bubble Explorers family show at the Science Museum \u2013 exciting experiments, moments of wow and a chance to practice your scientific exploration skills. \ud83e\udee7  \n\nDon't miss it \u2013 book now: https://bit.ly/3TrVU8i\n\n#ScienceMuseum #ThingsToDoInLondon #FamilyDayOut"
+        },
+        "author": {
+          "handle": "sciencemuseum.org.uk"
+        }
+      }
+    },
+    {
+      "post": {
+        "uri": "at://did:plc:vfz6n4by6ayu2ybwpq6qemik/app.bsky.feed.post/3mrftbhdfgb2s",
+        "record": {
+          "text": "\ud83d\udea8  We've got great news...  \n\nNew additional screenings to watch and experience The Odyssey in glorious IMAX 70 mm are now on sale. \n\nDon't miss it \u2013 book now: https://bit.ly/4pDvyME\n\n#TheOdyssey #IMAX70mm #ScienceMuseum "
+        },
+        "author": {
+          "handle": "sciencemuseum.org.uk"
+        }
+      }
+    }
+  ]
+}

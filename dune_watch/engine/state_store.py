@@ -179,6 +179,23 @@ class StateStore:
     def get_source_health(self, venue_id: str) -> Optional[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM source_health WHERE venue_id = ?", (venue_id,)).fetchone()
 
+    def last_escalation_at(self, venue_id: str, event_types: tuple[str, ...]) -> Optional[str]:
+        """Most recent sent_at for an escalating event at this venue, or None.
+
+        Drives the hot-polling window: once a venue has announced a sale we keep
+        checking it frequently for a few hours, because the first batch of showtimes is
+        usually followed quickly by more.
+        """
+        if not event_types:
+            return None
+        placeholders = ",".join("?" for _ in event_types)
+        row = self.conn.execute(
+            f"SELECT MAX(sent_at) AS last_at FROM alerts_sent "
+            f"WHERE listing_key LIKE ? AND event_type IN ({placeholders})",
+            (f"{venue_id}|%", *event_types),
+        ).fetchone()
+        return row["last_at"] if row and row["last_at"] else None
+
     def all_listings(self) -> list[StoredListing]:
         rows = self.conn.execute("SELECT * FROM listings ORDER BY venue_id, show_date, show_time").fetchall()
         return [StoredListing(**{k: row[k] for k in row.keys()}) for row in rows]

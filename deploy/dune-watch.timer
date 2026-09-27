@@ -1,5 +1,14 @@
+# DEPRECATED - kept only for the older one-shot deployment style.
+#
+# The service is now Type=simple and runs `run --loop`, which schedules each venue
+# itself (including the fast on-sale cadence). Enable the service directly:
+#
+#     sudo systemctl enable --now dune-watch.service
+#
+# Do NOT enable this timer alongside it; you would get two pollers and doubled alerts.
+
 [Unit]
-Description=Run dune-watch poll every 20 minutes
+Description=(deprecated) Run dune-watch as a periodic one-shot
 
 [Timer]
 OnBootSec=2min

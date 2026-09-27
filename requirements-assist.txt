@@ -1,0 +1,4 @@
+# Optional extra, only needed for `dune_watch prearm` (the warm-browser helper).
+# Deliberately not in requirements.txt: the poller runs headless on a small VM and
+# should not pull a browser engine.
+playwright>=1.47

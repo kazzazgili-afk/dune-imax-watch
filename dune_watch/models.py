@@ -4,10 +4,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Optional
 
-AVAILABILITY_STATES = ("unknown", "register_interest", "unavailable", "bookable", "sold_out")
+AVAILABILITY_STATES = (
+    "unknown", "register_interest", "unavailable", "bookable", "sold_out",
+    "queue_active",  # venue has thrown a Queue-it style waiting room in front of booking
+)
 URGENCY_LEVELS = ("INFO", "HIGH", "CRITICAL")
 
 _EVENT_LABELS = {
+    "on_sale_detected": "TICKETS ON SALE",
+    "queue_active": "Booking queue is live",
     "new_listing": "New listing",
     "batch_release": "Batch release",
     "availability_change": "Availability changed",
@@ -34,7 +39,18 @@ class RawListing:
     source_message_id: Optional[str] = None
 
     def listing_key(self) -> str:
+        if self.source_type == "bluesky_feed":
+            return f"{self.venue_id}|post|{self.source_message_id}"
         if self.source_type == "imap_newsletter":
+            # One newsletter can announce several showtimes (the Science Museum's
+            # 9 Sept 2026 mail offered 14.30 and 19.15), so the Message-ID alone is
+            # not unique enough - without the showtime the second listing would
+            # overwrite the first and only one alert would ever fire.
+            if self.show_date or self.show_time:
+                return (
+                    f"{self.venue_id}|email|{self.source_message_id}"
+                    f"|{self.show_date}|{self.show_time}"
+                )
             return f"{self.venue_id}|email|{self.source_message_id}"
         if self.show_date is None and self.show_time is None:
             return f"{self.venue_id}|pending"

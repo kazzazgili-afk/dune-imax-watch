@@ -11,3 +11,6 @@ deploy/dune-watch.env
 state.db
 state.dry_run.db
 *.log
+
+# warm-browser profile, if pointed inside the repo instead of ~/.dune-watch
+browser-profile/

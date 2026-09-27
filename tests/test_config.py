@@ -5,7 +5,12 @@ import os
 import pytest
 import yaml
 
+from pathlib import Path
+
+from dune_watch.adapters.registry import ADAPTER_REGISTRY
 from dune_watch.config import ConfigError, load_config
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 BASE_CONFIG = {
     "film": {
@@ -132,3 +137,72 @@ def test_disabled_imap_venue_does_not_require_env_vars(tmp_path, monkeypatch):
     path = write_config(tmp_path, config)
     app_config = load_config(path)  # should not raise
     assert app_config.enabled_venues() == []
+
+
+# --- The shipped config files must actually load -----------------------------------
+# These are the files the deployments run from. A YAML slip in one of them breaks the
+# watcher at the worst possible moment, and nothing else in the suite would notice.
+
+SHIPPED_CONFIGS = [
+    "config/config.yaml",
+    "config/config.github.yaml",
+    "config/config.example.yaml",
+]
+
+
+@pytest.mark.parametrize("path", SHIPPED_CONFIGS)
+def test_shipped_config_loads(path, monkeypatch):
+    monkeypatch.setenv("DUNE_WATCH_NTFY_TOPIC", "test-topic")
+    monkeypatch.setenv("DUNE_WATCH_SMTP_USER", "test@example.org")
+    monkeypatch.setenv("DUNE_WATCH_SMTP_PASS", "test-pass")
+    monkeypatch.setenv("DUNE_WATCH_IMAP_HOST", "imap.example.org")
+    monkeypatch.setenv("DUNE_WATCH_IMAP_USER", "test@example.org")
+    monkeypatch.setenv("DUNE_WATCH_IMAP_PASS", "test-pass")
+
+    config = load_config(REPO_ROOT / path)
+    assert config.venues, f"{path} defines no venues"
+    assert config.film.opening_window_start < config.film.opening_window_end
+
+    for venue in config.venues:
+        assert venue.venue_type in ADAPTER_REGISTRY, (
+            f"{path}: venue {venue.id!r} uses unknown venue_type {venue.venue_type!r}"
+        )
+
+
+@pytest.mark.parametrize("path", SHIPPED_CONFIGS)
+def test_shipped_config_opening_window_covers_the_preview_screenings(path, monkeypatch):
+    """Both London venues run previews from Tue 15 Dec, three days before the 18 Dec
+    general release. An opening_window starting after that silently discards those
+    showtimes in html_page_diff."""
+    monkeypatch.setenv("DUNE_WATCH_IMAP_HOST", "imap.example.org")
+    monkeypatch.setenv("DUNE_WATCH_IMAP_USER", "test@example.org")
+    monkeypatch.setenv("DUNE_WATCH_IMAP_PASS", "test-pass")
+    monkeypatch.setenv("DUNE_WATCH_NTFY_TOPIC", "test-topic")
+    monkeypatch.setenv("DUNE_WATCH_SMTP_USER", "test@example.org")
+    monkeypatch.setenv("DUNE_WATCH_SMTP_PASS", "test-pass")
+
+    config = load_config(REPO_ROOT / path)
+    assert config.film.opening_window_start <= "2026-12-15"
+
+
+def test_enabled_imap_venues_use_domain_fragments_not_full_addresses(monkeypatch):
+    """The Sept 2026 miss was a sender_filter written as a full address: the filter is a
+    substring test, and "news@bfi.org.uk" is not a substring of the real sender
+    "noreply@news.bfi.org.uk"."""
+    monkeypatch.setenv("DUNE_WATCH_IMAP_HOST", "imap.example.org")
+    monkeypatch.setenv("DUNE_WATCH_IMAP_USER", "test@example.org")
+    monkeypatch.setenv("DUNE_WATCH_IMAP_PASS", "test-pass")
+    monkeypatch.setenv("DUNE_WATCH_NTFY_TOPIC", "test-topic")
+    monkeypatch.setenv("DUNE_WATCH_SMTP_USER", "test@example.org")
+    monkeypatch.setenv("DUNE_WATCH_SMTP_PASS", "test-pass")
+
+    for path in SHIPPED_CONFIGS:
+        config = load_config(REPO_ROOT / path)
+        for venue in config.venues:
+            if venue.venue_type != "imap_newsletter" or not venue.enabled:
+                continue
+            for pattern in venue.extra.get("imap", {}).get("sender_filter", []):
+                assert "@" not in pattern, (
+                    f"{path}: venue {venue.id!r} sender_filter {pattern!r} contains '@'; "
+                    "use a bare domain fragment so subdomain senders still match"
+                )

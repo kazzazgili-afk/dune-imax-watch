@@ -11,7 +11,10 @@ film:
   keywords: ["dune", "dune: part three", "dune part 3"]
   format_keywords: ["imax 70mm", "70mm", "imax"]
   opening_window:
-    start: "2026-12-17"
+    # Global opening weekend is Fri 18 Dec 2026, but both London venues run previews
+    # from Tue 15 Dec - a start of 2026-12-17 made html_page_diff discard those
+    # preview showtimes as out of window. Keep the start early.
+    start: "2026-12-01"
     end: "2027-02-28"
 
 polling:
@@ -20,6 +23,9 @@ polling:
   user_agent: "dune-imax-watch/0.1 (personal use; contact: kazzazgili@gmail.com)"
   http_timeout_seconds: 15
   http_max_retries: 2
+  # No hot window here: GitHub's schedule is ~20 min at best, so a fast cadence is
+  # meaningless. This deployment is the independent backup; the VM is primary.
+  heartbeat_stale_after_minutes: 0   # CI is stateless per run - the VM owns the heartbeat
   failing_source_alert_after_cycles: 6
   batch_threshold: 3
 
@@ -45,7 +51,10 @@ venues:
     poll_interval_minutes: 60
     imap:
       folder: "INBOX"
-      sender_filter: ["sciencemuseum.org.uk"]  # confirm the real sender once their confirmation email arrives
+      # CONFIRMED sender (9 Sept 2026 on-sale email): no-reply@sciencemuseum.ac.uk
+      # Note the .ac.uk - the original ".org.uk" filter is a substring test that never
+      # matched, and it silently dropped the museum's only ticket release to date.
+      sender_filter: ["sciencemuseum.ac.uk", "sciencemuseum.org.uk"]
       subject_keywords: ["imax", "dune", "on sale", "tickets", "ronson"]
       lookback_days_on_first_run: 30
 
@@ -56,9 +65,23 @@ venues:
     poll_interval_minutes: 60
     imap:
       folder: "INBOX"
-      sender_filter: ["boxoffice@bfi.org.uk", "news@bfi.org.uk"]
+      # CONFIRMED sender (8 Sept 2026 Dune preview email): noreply@news.bfi.org.uk.
+      # Must be a bare domain fragment: "news@bfi.org.uk" is NOT a substring of
+      # "noreply@news.bfi.org.uk", so the old filter never matched either.
+      sender_filter: ["bfi.org.uk"]
       subject_keywords: ["imax", "dune", "on sale", "tickets"]
       lookback_days_on_first_run: 30
+
+  - id: science_museum_bluesky
+    name: "Science Museum IMAX (Bluesky)"
+    enabled: true
+    venue_type: bluesky_feed
+    poll_interval_minutes: 20
+    bluesky:
+      actor: "did:plc:vfz6n4by6ayu2ybwpq6qemik"
+      limit: 30
+    # Bluesky's public API is reachable from GitHub Actions (unlike sciencemuseum.org.uk,
+    # which 403s CI IP ranges), so this gives CI a second independent signal beyond email.
 
 state:
   db_path: "./state/github_state.db"   # tracked in git, committed by the workflow when it changes

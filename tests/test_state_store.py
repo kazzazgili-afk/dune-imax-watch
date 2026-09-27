@@ -79,3 +79,29 @@ def test_all_listings_returns_everything(fresh_state_db):
     store.upsert_listing(make_listing(show_time="21:00"))
     listings = store.all_listings()
     assert len(listings) == 2
+
+
+def test_last_escalation_at_finds_only_this_venues_escalating_alerts(fresh_state_db):
+    """Drives the hot-polling window, so a wrong answer here means the watcher silently
+    stays on its slow cadence during an on-sale."""
+    store = fresh_state_db
+
+    store.record_alert_sent("science_museum_imax|pending", "info_change", "INFO", ["ntfy"], [])
+    assert store.last_escalation_at(
+        "science_museum_imax", ("on_sale_detected", "queue_active")
+    ) is None, "an INFO change is not an escalation"
+
+    store.record_alert_sent("bfi_imax|email|<x>", "on_sale_detected", "CRITICAL", ["ntfy"], [])
+    assert store.last_escalation_at(
+        "science_museum_imax", ("on_sale_detected", "queue_active")
+    ) is None, "another venue's on-sale must not make this one hot"
+
+    store.record_alert_sent(
+        "science_museum_imax|pending", "on_sale_detected", "CRITICAL", ["ntfy"], []
+    )
+    found = store.last_escalation_at("science_museum_imax", ("on_sale_detected", "queue_active"))
+    assert found is not None
+
+
+def test_last_escalation_at_with_no_event_types_is_none(fresh_state_db):
+    assert fresh_state_db.last_escalation_at("science_museum_imax", ()) is None

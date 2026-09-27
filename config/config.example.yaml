@@ -1,12 +1,23 @@
-# dune-imax-watch configuration
-# Copy to config.yaml and fill in. Secrets are NOT stored here - see secrets.example.env.
+# dune-imax-watch configuration - EXAMPLE / TEMPLATE
+#
+# Copy to config/config.yaml and adjust. config/config.yaml is gitignored, so THIS file
+# is what a fresh deployment (e.g. the always-on VM) starts from - keep it in sync:
+#
+#     cp config/config.example.yaml config/config.yaml
+#
+# No secrets live here; they come from config/secrets.env or the environment. See
+# config/secrets.example.env. Before enabling the imap_newsletter venues, sign up for
+# the venue's own email alerts and put a working Gmail app password in secrets.env.
 
 film:
   title: "Dune: Part Three"
   keywords: ["dune", "dune: part three", "dune part 3"]
   format_keywords: ["imax 70mm", "70mm", "imax"]
   opening_window:
-    start: "2026-12-17"
+    # Global opening weekend is Fri 18 Dec 2026, but both London venues run previews
+    # from Tue 15 Dec - a start of 2026-12-17 made html_page_diff discard those
+    # preview showtimes as out of window. Keep the start early.
+    start: "2026-12-01"
     end: "2027-02-28"   # how far ahead to consider a showtime "in scope"
 
 polling:
@@ -18,44 +29,102 @@ polling:
   failing_source_alert_after_cycles: 6   # alert once a source has failed N cycles in a row
   batch_threshold: 3                     # N+ brand-new listings in one cycle = "batch release"
 
+  # Hot polling: the cadence used when a sale is imminent or under way. Entered
+  # automatically within hot_hours_before_onsale of a venue's expected_onsale, or for
+  # hot_hours_after_signal after any on-sale/queue/batch alert, or forced with `run --hot`.
+  # Always clamped up to the site's own robots.txt Crawl-delay, so this can never poll
+  # faster than the venue permits - see `python -m dune_watch robots-check`.
+  hot_interval_seconds: 30
+  hot_hours_before_onsale: 24
+  hot_hours_after_signal: 6
+
+  # Alert if nothing has polled successfully in this long. The logs showed 14 straight
+  # DNS failures while the laptop was asleep, during which every notification channel
+  # also failed - so silence looked identical to "nothing has happened yet".
+  heartbeat_stale_after_minutes: 90
+
 venues:
   - id: science_museum_imax
     name: "Science Museum IMAX (The Ronson Theatre)"
     enabled: true
     venue_type: html_page_diff
     url: "https://www.sciencemuseum.org.uk/see-and-do/dune-part-three"
+    # The page visitors are sent to once tickets exist - this is what `prearm` opens.
+    # It is the official front door and redirects into the Queue-it waiting room when a
+    # sale is live, which is exactly where we want to be sitting.
+    booking_url: "https://my.sciencemuseum.org.uk/events?view=calendar"
     poll_interval_minutes: 20
-    # robots.txt for sciencemuseum.org.uk only disallows /admin, /search, /user* -
-    # this content page is allowed. Confirmed 200 OK, no Cloudflare challenge.
+    hot_interval_seconds: 20     # the floor sciencemuseum.org.uk publishes (Crawl-Delay: 20)
+    # sciencemuseum.org.uk/robots.txt allows this content page (it only disallows
+    # /core/, /profiles/, /admin, /search, /user*) and publishes Crawl-Delay: 20.
+    # Confirmed 200 OK from a home IP, no Cloudflare challenge. Enforced at runtime by
+    # util/robots.py, not just asserted here.
     parser_hints:
       register_interest_markers: ["register your interest", "register interest"]
-      showtime_container_selector: ".showtime, .performance, [data-showtime]"  # adjust once live markup is seen
+
+      # Calibrated against the LIVE markup of The Odyssey - same screen, same template,
+      # currently on sale - captured in fixtures/html/science_museum_odyssey_live.html.
+      # The real call to action is:
+      #   <a class="btn btn--primary" href="https://my.sciencemuseum.org.uk/events?view=calendar&kid=794&...">
+      #     Check ticket availability</a>
+      # so a link to the Tessitura calendar with a production id (kid) is the on-sale tell.
+      booking_text_markers: ["check ticket availability", "book tickets", "book now", "buy tickets"]
+      booking_link_patterns: ["/events?", "kid="]
+      # The same host also serves account pages ("Newsletter", "Sign up", "My bookings")
+      # and tickets.sciencemuseum.org.uk sells general museum admission. Matching any of
+      # those would fire a permanent false on-sale on a page with no film tickets at all.
+      booking_link_excludes: ["/account/", "/login", "/basket", "/cart"]
+      # The Odyssey page proves a page can show a booking CTA and still be sold out, so
+      # sold-out wording outranks the presence of a link.
+      sold_out_markers: ["sold out", "no longer available", "fully booked"]
+      # Restricts all of the above (and the change fingerprint) to the film's own block.
+      # The rest of the page has an "Other things to see and do" carousel whose cards are
+      # giant anchors containing phrases like "book tickets", and whose contents rotate -
+      # which is what produced the drip of INFO "Listing updated" alerts with nothing
+      # behind them on 1, 3, 8 and 21 Sept.
+      content_selector: "main, [role=main], article"
+
+      # Left unset deliberately: this page has no per-showtime markup at all - showtimes
+      # live inside the Tessitura calendar app - so the page is treated as one listing
+      # whose state is told by whether a booking CTA has appeared.
+      # showtime_container_selector: ".showtime"
 
   - id: science_museum_imax_email
     name: "Science Museum IMAX (Email Alert)"
-    enabled: true
+    enabled: true    # this config is now the primary (always-on VM) deployment
     venue_type: imap_newsletter
-    poll_interval_minutes: 60
+    poll_interval_minutes: 15   # your own mailbox has no site rate-limit concern
+    hot_interval_seconds: 60
     imap:
       folder: "INBOX"
-      sender_filter: ["sciencemuseum.org.uk"]  # confirm the real sender once their confirmation email arrives
+      # CONFIRMED sender (9 Sept 2026 on-sale email): no-reply@sciencemuseum.ac.uk
+      # Note the .ac.uk - the original ".org.uk" filter is a substring test that never
+      # matched, and it silently dropped the museum's only ticket release to date.
+      sender_filter: ["sciencemuseum.ac.uk", "sciencemuseum.org.uk"]
       subject_keywords: ["imax", "dune", "on sale", "tickets", "ronson"]
       lookback_days_on_first_run: 30
+      # Booking CTAs are wrapped in click-trackers (e.wordfly.com), so the link is
+      # identified by the text that introduces it, not by its href.
+      booking_text_markers: ["book tickets", "book for", "book now", "check ticket availability"]
     # Backs up the html_page_diff venue above with the museum's own "Register for
     # email alerts" signup (sciencemuseum.org.uk/see-and-do/dune-part-three). Added
     # after discovering sciencemuseum.org.uk 403s requests from GitHub Actions' IP
-    # ranges specifically (works fine from a home IP) - this email channel gives
-    # full coverage regardless of where it's polled from. Sign up for the museum's
-    # alert (same page as above) before enabling this venue.
+    # ranges specifically (works fine from a home IP, like this local run) - this
+    # email channel gives full coverage regardless of where it's polled from. Sign
+    # up for the museum's alert (same page as above) before enabling this venue.
 
   - id: bfi_imax
     name: "BFI IMAX (Southbank)"
-    enabled: true
+    enabled: true    # this config is now the primary (always-on VM) deployment
     venue_type: imap_newsletter
-    poll_interval_minutes: 60          # checking your own mailbox has no site rate-limit concern
+    poll_interval_minutes: 15          # checking your own mailbox has no site rate-limit concern
+    hot_interval_seconds: 60
     imap:
       folder: "INBOX"                  # or a dedicated filter folder, e.g. "BFI IMAX"
-      sender_filter: ["boxoffice@bfi.org.uk", "news@bfi.org.uk"]  # confirm the real sender after signup
+      # CONFIRMED sender (8 Sept 2026 Dune preview email): noreply@news.bfi.org.uk.
+      # Must be a bare domain fragment: "news@bfi.org.uk" is NOT a substring of
+      # "noreply@news.bfi.org.uk", so the old filter never matched either.
+      sender_filter: ["bfi.org.uk"]
       subject_keywords: ["imax", "dune", "on sale", "tickets"]
       lookback_days_on_first_run: 30
     # IMPORTANT: whatson.bfi.org.uk is Cloudflare-challenge-protected (confirmed via
@@ -64,16 +133,38 @@ venues:
     # you already receive, from the official "Sign up to BFI IMAX emails" alert at
     # bfi.org.uk/bfi-imax. Sign up there manually before enabling this venue.
 
-  - id: vue_manchester_example
-    name: "Vue Manchester (EXAMPLE - DISABLED)"
-    enabled: false
-    venue_type: html_page_diff
-    url: "https://www.myvue.com/cinema/manchester-printworks/showing/dune-part-three"
+  - id: science_museum_bluesky
+    name: "Science Museum IMAX (Bluesky)"
+    enabled: true
+    venue_type: bluesky_feed
+    poll_interval_minutes: 15
+    hot_interval_seconds: 60
+    bluesky:
+      # Resolved from the profile link on the museum's own page.
+      actor: "did:plc:vfz6n4by6ayu2ybwpq6qemik"
+      limit: 30
+    # Bluesky's public read API needs no account, key or scraping. Worth having because
+    # the museum announces 70mm on-sales here in the same breath as the newsletter -
+    # its real wording for the current film was "New screenings of The Odyssey in
+    # magnificent IMAX 70mm are now on sale." (BFI is not on Bluesky as of Sept 2026.)
+
+  - id: vue_manchester_email
+    name: "Vue Manchester Printworks (Email Alert)"
+    enabled: false   # enable once you have signed up to Vue's mailing list
+    venue_type: imap_newsletter
     poll_interval_minutes: 30
-    # WARNING: Vue's own robots.txt disallows /book-tickets/, /showing/, /screening/.
-    # Do NOT enable this without first re-checking robots.txt and terms of use.
-    # Kept here only as a template for adding a future venue. Also out of scope for
-    # "London" - Manchester Printworks is the third UK 70mm venue, not a London one.
+    imap:
+      folder: "INBOX"
+      sender_filter: ["myvue.com", "vue.com"]   # confirm the real sender after signup
+      subject_keywords: ["imax", "dune", "70mm", "on sale", "tickets"]
+      lookback_days_on_first_run: 30
+      booking_text_markers: ["book tickets", "book now", "buy tickets"]
+    # The third and only non-London UK 70mm screen. Newsletter-only on purpose:
+    # www.myvue.com answers browser-UA requests with HTTP 403 (Cloudflare - note the
+    # /cdn-cgi/ entry in its robots.txt), and robots.txt disallows /book-tickets/ and
+    # /screening/. Its `Disallow: /showing/` is a prefix rule that does NOT cover
+    # /cinema/<site>/showing/<film>, so the exclusion here is the 403 wall and the
+    # booking-path rules, not that specific line.
 
 state:
   db_path: "./state.db"

@@ -32,6 +32,14 @@ class PollingConfig:
     http_max_retries: int = 2
     failing_source_alert_after_cycles: int = 6
     batch_threshold: int = 3
+    # "Hot" polling: the cadence used when a sale is imminent or under way. Always
+    # clamped up to the site's own robots.txt Crawl-delay before use.
+    hot_interval_seconds: int = 30
+    hot_hours_before_onsale: int = 24
+    hot_hours_after_signal: int = 6
+    # Alert if no venue has polled successfully in this long (0 disables). Catches the
+    # silent-death case where the host sleeps or loses DNS and nothing is watching.
+    heartbeat_stale_after_minutes: int = 0
 
 
 @dataclass
@@ -41,6 +49,10 @@ class VenueConfig:
     enabled: bool
     venue_type: str
     poll_interval_minutes: int
+    # Per-venue overrides for hot polling. `expected_onsale` is an ISO 8601 datetime;
+    # if it carries no UTC offset it is read as UTC.
+    hot_interval_seconds: Optional[int] = None
+    expected_onsale: Optional[str] = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -141,13 +153,19 @@ def load_config(path: str | Path) -> AppConfig:
 
         venues: list[VenueConfig] = []
         for v in raw.get("venues", []):
-            reserved = {"id", "name", "enabled", "venue_type", "poll_interval_minutes"}
+            reserved = {
+                "id", "name", "enabled", "venue_type", "poll_interval_minutes",
+                "hot_interval_seconds", "expected_onsale",
+            }
+            hot_override = v.get("hot_interval_seconds")
             venues.append(VenueConfig(
                 id=v["id"],
                 name=v["name"],
                 enabled=bool(v.get("enabled", False)),
                 venue_type=v["venue_type"],
                 poll_interval_minutes=int(v.get("poll_interval_minutes", polling.default_interval_minutes)),
+                hot_interval_seconds=int(hot_override) if hot_override is not None else None,
+                expected_onsale=v.get("expected_onsale"),
                 extra={k: val for k, val in v.items() if k not in reserved},
             ))
         if not venues:

@@ -49,13 +49,13 @@ def test_new_listing_non_imax_is_info():
 def test_unavailable_to_bookable_imax_is_critical():
     old = make_stored(availability="unavailable")
     new = make_raw(availability="bookable")
-    assert classify(old, new) == ("availability_change", "CRITICAL")
+    assert classify(old, new) == ("on_sale_detected", "CRITICAL")
 
 
 def test_unavailable_to_bookable_non_imax_is_high():
     old = make_stored(availability="unavailable", format_label="Digital")
     new = make_raw(availability="bookable", format_label="Digital")
-    assert classify(old, new) == ("availability_change", "HIGH")
+    assert classify(old, new) == ("on_sale_detected", "HIGH")
 
 
 def test_register_interest_to_unavailable_is_sale_announced():
@@ -64,11 +64,12 @@ def test_register_interest_to_unavailable_is_sale_announced():
     assert classify(old, new) == ("sale_announced", "HIGH")
 
 
-def test_register_interest_to_bookable_prefers_availability_change():
-    # Both rows could apply; the more specific "went bookable" rule wins.
+def test_register_interest_to_bookable_is_on_sale_detected():
+    # Both rules could apply; the more specific "went bookable" rule wins. This is the
+    # exact transition the Science Museum page makes when tickets are released.
     old = make_stored(availability="register_interest")
     new = make_raw(availability="bookable")
-    assert classify(old, new) == ("availability_change", "CRITICAL")
+    assert classify(old, new) == ("on_sale_detected", "CRITICAL")
 
 
 def test_bookable_to_sold_out_is_info():
@@ -89,9 +90,36 @@ def test_other_change_is_info_change():
     assert classify(old, new) == ("info_change", "INFO")
 
 
-def test_imap_listing_always_sale_announced():
+def test_imap_listing_first_sighting_is_sale_announced():
     new = make_raw(source_type="imap_newsletter", source_message_id="msg-1", availability="unknown")
     assert classify(None, new) == ("sale_announced", "HIGH")
+
+
+def test_imap_bookable_email_is_critical_on_sale():
+    new = make_raw(source_type="imap_newsletter", source_message_id="msg-1", availability="bookable")
+    assert classify(None, new) == ("on_sale_detected", "CRITICAL")
+
+
+def test_imap_email_only_alerts_once():
+    """A newsletter is immutable, so re-seeing it must not re-alert. Without this the
+    whole IMAP lookback window would re-fire on every poll."""
+    new = make_raw(source_type="imap_newsletter", source_message_id="msg-1", availability="bookable")
+    old = make_stored(
+        listing_key=new.listing_key(), source_type="imap_newsletter", availability="bookable",
+    )
+    assert classify(old, new) is None
+
+
+def test_queue_appearing_is_critical():
+    old = make_stored(availability="register_interest")
+    new = make_raw(availability="queue_active")
+    assert classify(old, new) == ("queue_active", "CRITICAL")
+
+
+def test_queue_still_active_does_not_realert():
+    old = make_stored(availability="queue_active", raw_fingerprint="same")
+    new = make_raw(availability="queue_active", raw_fingerprint="same")
+    assert classify(old, new) is None
 
 
 def test_build_alert_copies_fields():

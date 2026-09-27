@@ -9,10 +9,38 @@ urgency label. It never enters payment details or completes a purchase; on
 HIGH/CRITICAL alerts it optionally auto-opens the booking link in your browser so
 it's already loaded when you look.
 
+## Why this is a detection tool, not a purchase bot
+
+Worth knowing before adding "just buy it automatically", because the shape of the
+problem is counter-intuitive:
+
+- **The Science Museum's booking app sits behind Queue-it.** `my.sciencemuseum.org.uk`
+  redirects to `sciencemuseum.queue-it.net`. Queue-it's pre-queue collects everyone who
+  arrives before the sale starts and then **randomises them like a raffle** when the
+  countdown hits zero; only people arriving *after* that are served
+  first-come-first-served, at the back. Being fast at the moment of the drop wins
+  nothing. Being *already in the waiting room* is the only thing that helps - which is
+  what `prearm` is for.
+- **Queue-it runs Akamai Bot Manager during the pre-queue**, and sessions it flags as
+  "Aggressive" are hard-blocked or sent to the back of the line when the queue opens. A
+  stealth browser with rotating proxies is not an edge here; it is how you lose.
+- **BFI IMAX is behind an active Cloudflare challenge** (`HTTP 403`,
+  `cf-mitigated: challenge`) and its robots.txt disallows every Tessitura transaction
+  path. It is never scraped - only its newsletter is read.
+- **BFI Membership is the one real edge.** "Member Row" is 24 seats per screening,
+  usually central, reserved for members for the **first 24 hours of general sale**, at
+  standard price, with no limit on how many you book. That turns BFI from a
+  seconds-long scramble into a day-long window, for £44/year. No automation can
+  replicate it.
+
+Accordingly this tool automates *detection and readiness* only, and deliberately
+contains no queue bypass, no CAPTCHA solving, no proxies, no fingerprint spoofing, and
+no automated payment.
+
 ## Architecture at a glance
 
-Two venues, three venue *entries* (one venue has two independent channels), one
-shared diff engine:
+Three venues, five venue *entries* (some venues have several independent channels),
+one shared diff engine:
 
 - **Science Museum IMAX**
   - `science_museum_imax` (`html_page_diff` adapter) - polls the public
@@ -30,11 +58,39 @@ shared diff engine:
   reads your own mailbox (read-only IMAP) for the official "BFI IMAX emails" alert
   you sign up for once, and turns matching emails into alerts.
 
+- **Science Museum IMAX (Bluesky)** (`science_museum_bluesky`, `bluesky_feed` adapter) -
+  polls the museum's public Bluesky feed through `public.api.bsky.app`, which needs no
+  account, key or scraping. Worth having because the museum announces 70mm on-sales
+  there in the same breath as the newsletter; its real wording for the current film was
+  *"New screenings of The Odyssey in magnificent IMAX 70mm are now on sale."* (BFI has
+  no Bluesky presence as of Sept 2026.)
+- **Vue Manchester Printworks** (`vue_manchester_email`, `imap_newsletter`, disabled
+  until you sign up) - the third and only non-London UK 70mm screen. Newsletter-only:
+  `www.myvue.com` answers browser-UA requests with `HTTP 403` (Cloudflare) and its
+  robots.txt disallows `/book-tickets/` and `/screening/`.
+
 All adapters return a normalized `RawListing`; a pure diff function
 (`engine/diff.py`) classifies each one against SQLite-persisted state into an
 event type + urgency; a `Dispatcher` fans alerts out to every enabled notification
-channel independently. Adding a third venue later is one config block (plus a new
+channel independently. Adding another venue is one config block (plus a new
 adapter file only if it needs a genuinely new fetch strategy).
+
+### Polling cadence and robots.txt
+
+`util/robots.py` enforces robots.txt at runtime rather than describing it in a comment:
+a disallowed path is refused outright, and every venue's poll interval is clamped to
+`max(configured, the site's Crawl-delay)`. That is what makes fast polling defensible -
+`sciencemuseum.org.uk` publishes `Crawl-Delay: 20`, so a 20-**second** cadence during an
+on-sale is explicitly within what the site asks for.
+
+Each venue has a routine cadence and a **hot** cadence. Hot is entered automatically
+within `hot_hours_before_onsale` of a venue's `expected_onsale`, for
+`hot_hours_after_signal` after any on-sale/queue/batch alert, or on demand with
+`run --hot`. Audit all of it with:
+
+```bash
+.venv/bin/python -m dune_watch robots-check --config config/config.yaml
+```
 
 ## Prerequisites
 
@@ -84,7 +140,37 @@ or IMAP call, and writes to a throwaway in-memory state DB.
 .venv/bin/python -m dune_watch status --config config/config.yaml
 ```
 
+## Be in the queue before it opens (`prearm`)
+
+Because Queue-it randomises everyone already waiting when a sale opens, the single most
+useful thing automation can do is make sure you are in the waiting room *before* the
+countdown ends, signed in, with payment already on file.
+
+```bash
+# Optional extra - not installed by default, so the headless VM stays browser-free
+.venv/bin/pip install -r requirements-assist.txt
+.venv/bin/python -m playwright install chromium
+
+# One-time: sign in by hand in the dedicated profile, and it is remembered after that
+.venv/bin/python -m dune_watch prearm --venue science_museum_imax
+
+# On the day: sit in the pre-queue from 08:45 for a 09:00 on-sale
+.venv/bin/python -m dune_watch prearm --venue science_museum_imax --at 08:45
+
+# See exactly what it would do, without launching anything
+.venv/bin/python -m dune_watch prearm --venue science_museum_imax --at 08:45 --dry-run
+```
+
+It opens an ordinary headful Chromium holding your own session, navigates to the venue's
+official booking URL once, brings the window to the front, and then **stops** - it never
+refreshes (reloading a waiting-room page can forfeit your place), never picks seats and
+never touches payment. Run it from your laptop, not the VM: that is where your browser
+profile lives.
+
 ## Deploy - macOS (launchd)
+
+Secondary. Keep this machine for `prearm` (it holds your browser profile); it is not a
+reliable watcher, because nothing runs while the laptop is asleep or off the network.
 
 ```bash
 ./scripts/install_launchd.sh
@@ -97,7 +183,7 @@ the process every 20 minutes (`StartInterval`); each venue still respects its ow
 
 To stop: `launchctl unload ~/Library/LaunchAgents/com.gilikazzaz.dune-watch.plist`
 
-## Deploy - GitHub Actions (works even when your computer is off, free)
+## Deploy - GitHub Actions (free backup)
 
 Actions runners are stateless between runs, so `.github/workflows/poll.yml` uses
 the same "git scraping" pattern your prior Odyssey tracker used: each run reads
@@ -121,15 +207,22 @@ sub-minute-precise like launchd/systemd.
    trigger a run immediately from the repo's **Actions** tab -> "Poll Dune IMAX
    watch" -> **Run workflow**.
 
-This and the macOS/systemd deployments aren't mutually exclusive, but running the
-same poller in two places at once just means double notifications for the same
-event (deduped independently per state file) - pick one primary.
+Run this *alongside* the VM as an independent backup. Each deployment keeps its own
+state file, so while both are enabled you will get duplicate alerts for the same event.
+That is a deliberate trade: for a one-shot on-sale, a duplicate notification costs far
+less than a missed one. `config/config.github.yaml` leaves the Science Museum *page*
+venue disabled (CI can't reach it) and runs the mailbox and Bluesky channels only.
 
-## Deploy - cloud VM (optional, systemd)
+## Deploy - cloud VM (PRIMARY, systemd)
 
-An alternative to GitHub Actions if you want sub-minute timing or don't want state
-committed to the repo: a small always-on VM, using the same SQLite state file
-locally instead of committing it anywhere.
+This is the deployment that matters. A small always-on UK VM (~£4/month) is the only
+place that can do all three of:
+
+- poll `sciencemuseum.org.uk` at all (GitHub Actions IP ranges get `403`),
+- poll it at the 20-second cadence its robots.txt permits during an on-sale,
+- keep running while your laptop is asleep - the launchd logs show 14 consecutive DNS
+  failures from exactly that, during which every notification channel failed too, so the
+  silence was indistinguishable from "nothing has happened yet".
 
 ```bash
 sudo useradd -r -s /usr/sbin/nologin dunewatch
@@ -140,15 +233,31 @@ python3 -m venv /opt/dune-imax-watch/.venv
 cp deploy/dune-watch.env.example /opt/dune-imax-watch/deploy/dune-watch.env
 chmod 600 /opt/dune-imax-watch/deploy/dune-watch.env  # fill in real secrets
 
-sudo cp deploy/dune-watch.service deploy/dune-watch.timer /etc/systemd/system/
+sudo cp deploy/dune-watch.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now dune-watch.timer
-journalctl -u dune-watch.service -f   # tail logs
+sudo systemctl enable --now dune-watch.service
+journalctl -u dune-watch -f   # tail logs
 ```
 
-On a headless server, set `notifications.channels.macos_native.enabled: false` and
-`notifications.auto_open_booking_link.enabled: false` in `config.yaml` - there's no
-display or default browser there.
+The service runs `run --loop` as a long-lived `Type=simple` unit with `Restart=always`,
+because per-venue scheduling (including the hot cadence) lives inside the process and a
+systemd timer cannot express it. `deploy/dune-watch.timer` is deprecated and kept only
+for the old one-shot style - do not enable both, or you get two pollers and doubled
+alerts.
+
+On a headless server set `notifications.channels.macos_native.enabled: false` and
+`notifications.auto_open_booking_link.enabled: false` - there's no display or browser.
+Keep `heartbeat_stale_after_minutes` non-zero here; this is the deployment that should
+notice its own silence.
+
+Check the secrets took:
+
+```bash
+/opt/dune-imax-watch/.venv/bin/python -m dune_watch run --once --venue bfi_imax
+```
+
+A `[AUTHENTICATIONFAILED]` here means the Gmail app password is wrong. Use the **same**
+16-character app password for `DUNE_WATCH_IMAP_PASS` and `DUNE_WATCH_SMTP_PASS`.
 
 ## Running tests
 

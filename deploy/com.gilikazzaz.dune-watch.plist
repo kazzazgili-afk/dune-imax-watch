@@ -12,7 +12,7 @@
         <string>-m</string>
         <string>dune_watch</string>
         <string>run</string>
-        <string>--once</string>
+        <string>--loop</string>
         <string>--config</string>
         <string>/Users/gilikazzaz/dune-imax-watch/config/config.yaml</string>
     </array>
@@ -20,12 +20,15 @@
     <key>WorkingDirectory</key>
     <string>/Users/gilikazzaz/dune-imax-watch</string>
 
-    <!-- Re-invokes the process every 20 minutes; each venue still respects its own
-         poll_interval_minutes inside the app - this just controls how often the
-         process itself is launched. StartInterval survives sleep/wake better than
-         cron, and launchd can be told to restart on crash via KeepAlive if needed. -->
-    <key>StartInterval</key>
-    <integer>1200</integer>
+    <!-- A resident process, not a periodic one-shot.
+         `run --once` polls every enabled venue unconditionally - it does NOT consult
+         poll_interval_minutes - so the old StartInterval of 1200s was the real cadence
+         and every per-venue interval in config.yaml was inert. Only `run --loop`
+         schedules venues individually, which is what lets the mailboxes poll every
+         2 minutes, the museum page every 5, and either drop to its hot cadence during
+         an on-sale. KeepAlive restarts it if it dies or after a reboot. -->
+    <key>KeepAlive</key>
+    <true/>
 
     <key>RunAtLoad</key>
     <true/>

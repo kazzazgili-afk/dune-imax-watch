@@ -177,9 +177,13 @@ reliable watcher, because nothing runs while the laptop is asleep or off the net
 ```
 
 This copies `deploy/com.gilikazzaz.dune-watch.plist` to
-`~/Library/LaunchAgents/`, loads it, and starts one run immediately. It re-invokes
-the process every 20 minutes (`StartInterval`); each venue still respects its own
-`poll_interval_minutes` inside the app. Logs land in `~/Library/Logs/dune-watch/`.
+`~/Library/LaunchAgents/`, loads it, and starts it immediately. The agent runs
+`run --loop` as a resident process with `KeepAlive`, so per-venue intervals and hot
+windows actually apply. Logs land in `~/Library/Logs/dune-watch/`.
+
+(It previously ran `run --once` on a 20-minute `StartInterval`. That was the real
+cadence: `run --once` polls every enabled venue unconditionally and never consults
+`poll_interval_minutes`, so every per-venue interval in `config.yaml` was inert.)
 
 To stop: `launchctl unload ~/Library/LaunchAgents/com.gilikazzaz.dune-watch.plist`
 

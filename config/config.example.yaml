@@ -53,7 +53,7 @@ venues:
     # It is the official front door and redirects into the Queue-it waiting room when a
     # sale is live, which is exactly where we want to be sitting.
     booking_url: "https://my.sciencemuseum.org.uk/events?view=calendar"
-    poll_interval_minutes: 20
+    poll_interval_minutes: 5     # ~288 requests/day - responsive without being rude
     hot_interval_seconds: 20     # the floor sciencemuseum.org.uk publishes (Crawl-Delay: 20)
     # sciencemuseum.org.uk/robots.txt allows this content page (it only disallows
     # /core/, /profiles/, /admin, /search, /user*) and publishes Crawl-Delay: 20.
@@ -93,8 +93,14 @@ venues:
     name: "Science Museum IMAX (Email Alert)"
     enabled: true    # this config is now the primary (always-on VM) deployment
     venue_type: imap_newsletter
-    poll_interval_minutes: 15   # your own mailbox has no site rate-limit concern
-    hot_interval_seconds: 60
+    poll_interval_minutes: 2
+    hot_interval_seconds: 45
+    # Checking your own mailbox has no site rate-limit concern, so this is much faster
+    # than the old 15 minutes. Not faster still because every poll opens a fresh IMAP
+    # connection (login/select/logout) and three mailbox venues share one Gmail account;
+    # a 60s cadence across all three is ~4,300 logins/day, which risks Gmail throttling
+    # for no real gain. At 2 minutes the search is also cheap, since it now narrows by
+    # sender on the server rather than pulling a month of bodies every time.
     imap:
       folder: "INBOX"
       # CONFIRMED sender (9 Sept 2026 on-sale email): no-reply@sciencemuseum.ac.uk
@@ -117,8 +123,8 @@ venues:
     name: "BFI IMAX (Southbank)"
     enabled: true    # this config is now the primary (always-on VM) deployment
     venue_type: imap_newsletter
-    poll_interval_minutes: 15          # checking your own mailbox has no site rate-limit concern
-    hot_interval_seconds: 60
+    poll_interval_minutes: 2
+    hot_interval_seconds: 45
     imap:
       folder: "INBOX"                  # or a dedicated filter folder, e.g. "BFI IMAX"
       # CONFIRMED sender (8 Sept 2026 Dune preview email): noreply@news.bfi.org.uk.
@@ -137,7 +143,7 @@ venues:
     name: "Science Museum IMAX (Bluesky)"
     enabled: true
     venue_type: bluesky_feed
-    poll_interval_minutes: 15
+    poll_interval_minutes: 5
     hot_interval_seconds: 60
     bluesky:
       # Resolved from the profile link on the museum's own page.

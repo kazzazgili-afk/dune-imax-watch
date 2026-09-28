@@ -228,19 +228,25 @@ place that can do all three of:
   failures from exactly that, during which every notification channel failed too, so the
   silence was indistinguishable from "nothing has happened yet".
 
-```bash
-sudo useradd -r -s /usr/sbin/nologin dunewatch
-sudo mkdir -p /opt/dune-imax-watch && sudo chown dunewatch:dunewatch /opt/dune-imax-watch
-# rsync/git-clone the project to /opt/dune-imax-watch, then as the dunewatch user:
-python3 -m venv /opt/dune-imax-watch/.venv
-/opt/dune-imax-watch/.venv/bin/pip install -r /opt/dune-imax-watch/requirements.txt
-cp deploy/dune-watch.env.example /opt/dune-imax-watch/deploy/dune-watch.env
-chmod 600 /opt/dune-imax-watch/deploy/dune-watch.env  # fill in real secrets
+On a fresh Debian/Ubuntu box:
 
-sudo cp deploy/dune-watch.service /etc/systemd/system/
-sudo systemctl daemon-reload
-sudo systemctl enable --now dune-watch.service
-journalctl -u dune-watch -f   # tail logs
+```bash
+git clone https://github.com/kazzazgili-afk/dune-imax-watch.git
+cd dune-imax-watch && ./scripts/bootstrap_vm.sh
+```
+
+`bootstrap_vm.sh` starts with a **preflight check**: it fetches the museum page and
+refuses to continue on a `403`. GitHub Actions' IP ranges are blocked by that site;
+ordinary datacenter IPs are not, but this tells you before you invest in the host
+rather than after a month of silent half-coverage. It then installs the venv, writes a
+headless `config.yaml` (desktop notifications and browser-opening off), drops a `0600`
+secrets template, and installs the systemd unit pointed at your checkout.
+
+It never touches secrets - you fill `deploy/dune-watch.env` in yourself, then:
+
+```bash
+sudo systemctl enable --now dune-watch
+journalctl -u dune-watch -f
 ```
 
 The service runs `run --loop` as a long-lived `Type=simple` unit with `Restart=always`,

@@ -103,6 +103,16 @@ notifications:
       password_env_var: "DUNE_WATCH_SMTP_PASS"
       from_addr: "kazzazgili@gmail.com"
       to_addrs: ["kazzazgili@gmail.com"]
+  # One "still watching" notification per day, so you can tell a healthy-but-quiet
+  # watcher apart from a dead one. Fires on the first poll cycle of each calendar day
+  # at or after not_before_hour - deliberately not at a fixed time, because GitHub
+  # Actions throttles scheduled runs to roughly every 4 hours with gaps up to 8.
+  # Always INFO, so it never triggers the urgent ntfy priority, the repeat nudges or
+  # the browser auto-open that a real on-sale does.
+  daily_status:
+    enabled: true
+    timezone: "Asia/Jerusalem"   # your local time, for a predictable-ish morning ping
+    not_before_hour: 9
   auto_open_booking_link:
     enabled: false   # no browser on a GitHub Actions runner
     min_urgency: "HIGH"

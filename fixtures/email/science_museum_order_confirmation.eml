@@ -1,0 +1,24 @@
+Message-ID: <0TM31BGQ0HZUIA40@submit-ad3-fd3-1401-uk-london-1.example.invalid>
+From: Science Museum <confirmation@sciencemuseum.ac.uk>
+To: kazzazgili@gmail.com
+Subject: Thank You for Your Order with the Science Museum in London
+Date: Mon, 28 Sep 2026 23:19:05 +0100
+Content-Type: text/html; charset="utf-8"
+
+<html><body>
+<p>Your Account Information:</p>
+<table>
+  <tr><td>Account Number: 0000000</td><td>Order Date: 28/09/2026 23:15:53</td></tr>
+  <tr><td><b>Order Number:</b> 00000000</td></tr>
+</table>
+<table>
+  <tr><th>Tickets</th><th>Time</th><th>Type</th><th>Seat</th><th>Price</th><th>Total</th></tr>
+  <tr>
+    <td>15 December 2026 Dune: Part Three (TBC)</td>
+    <td>14:30</td><td>Adult Adult Adult</td><td>B22 B23 B24</td>
+    <td>&pound;20.00 &pound;20.00 &pound;20.00</td><td>&pound;60.00</td>
+  </tr>
+</table>
+<p><b>Total Due:</b> &pound;60.00 <b>Total Paid:</b> &pound;60.00</p>
+<p>IMAX: The Ronson Theatre</p>
+</body></html>

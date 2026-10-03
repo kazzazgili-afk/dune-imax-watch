@@ -47,6 +47,12 @@ CREATE TABLE IF NOT EXISTS source_health (
     failure_alert_sent INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS alerts_sent (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     listing_key TEXT NOT NULL,
@@ -179,6 +185,18 @@ class StateStore:
     def get_source_health(self, venue_id: str) -> Optional[sqlite3.Row]:
         return self.conn.execute("SELECT * FROM source_health WHERE venue_id = ?", (venue_id,)).fetchone()
 
+    def get_meta(self, key: str) -> Optional[str]:
+        row = self.conn.execute("SELECT value FROM meta WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row else None
+
+    def set_meta(self, key: str, value: str) -> None:
+        self.conn.execute(
+            "INSERT INTO meta (key, value, updated_at) VALUES (?, ?, ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+            (key, value, now_iso()),
+        )
+        self.conn.commit()
+
     def last_escalation_at(self, venue_id: str, event_types: tuple[str, ...]) -> Optional[str]:
         """Most recent sent_at for an escalating event at this venue, or None.
 
@@ -195,6 +213,16 @@ class StateStore:
             (f"{venue_id}|%", *event_types),
         ).fetchone()
         return row["last_at"] if row and row["last_at"] else None
+
+    def alerts_since(self, since_iso: str, event_types: tuple[str, ...] = ()) -> list[sqlite3.Row]:
+        """Alerts sent at or after `since_iso`, newest first, optionally filtered."""
+        sql = "SELECT listing_key, event_type, urgency, sent_at FROM alerts_sent WHERE sent_at >= ?"
+        params: list = [since_iso]
+        if event_types:
+            sql += f" AND event_type IN ({','.join('?' for _ in event_types)})"
+            params.extend(event_types)
+        sql += " ORDER BY sent_at DESC"
+        return list(self.conn.execute(sql, params))
 
     def all_listings(self) -> list[StoredListing]:
         rows = self.conn.execute("SELECT * FROM listings ORDER BY venue_id, show_date, show_time").fetchall()

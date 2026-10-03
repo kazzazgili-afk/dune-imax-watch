@@ -19,6 +19,7 @@ _EVENT_LABELS = {
     "sale_announced": "Tickets on sale",
     "info_change": "Listing updated",
     "source_failing": "Source check failing",
+    "daily_status": "Watcher is live",
 }
 
 
@@ -107,7 +108,7 @@ class Alert:
 
     @property
     def body(self) -> str:
-        if self.event_type == "source_failing":
+        if self.event_type in ("source_failing", "daily_status"):
             return self.detail or "Repeated polling failures - check the logs."
         when = " ".join(part for part in [self.show_date, self.show_time] if part) or "Date/time TBC"
         link = self.booking_link or "No booking link found - check the venue site"

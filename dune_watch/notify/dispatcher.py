@@ -4,6 +4,7 @@ for dry-run mode."""
 from __future__ import annotations
 
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -31,6 +32,15 @@ class LoggingChannel:
         logger.info("[DRY RUN] Would send via %s: %s | %s", self.name, alert.title, alert.body)
 
 
+# Retries for alerts worth retrying. SMTP and ntfy both fail transiently - observed
+# "Connection unexpectedly closed: [Errno 54]" from Gmail mid-run - and for a one-shot
+# on-sale a dropped notification is the whole failure mode this tool exists to prevent.
+# INFO alerts are not retried: the daily status will come round again tomorrow.
+RETRY_FROM_URGENCY = ("HIGH", "CRITICAL")
+RETRY_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 2.0
+
+
 class Dispatcher:
     def __init__(self, channels: list[NotificationChannel], dry_run: bool = False, browser_opener=None):
         self.dry_run = dry_run
@@ -38,22 +48,42 @@ class Dispatcher:
         self.browser_opener = browser_opener
 
     def dispatch(self, alert: Alert) -> DispatchResult:
+        attempts = RETRY_ATTEMPTS if alert.urgency in RETRY_FROM_URGENCY else 1
         results: dict[str, str] = {}
         for channel in self.channels:
-            try:
-                channel.send(alert)
-                results[channel.name] = "success"
-            except NotificationSendError as exc:
-                logger.warning("%s failed: %s", channel.name, exc)
-                results[channel.name] = f"failed: {exc}"
-            except Exception as exc:  # a channel's own bug must never take down the others
-                logger.exception("%s raised an unexpected error", channel.name)
-                results[channel.name] = f"failed: {exc}"
+            results[channel.name] = self._send_with_retries(channel, alert, attempts)
+
+        failed = [name for name, status in results.items() if status != "success"]
+        if failed and alert.urgency in RETRY_FROM_URGENCY:
+            logger.error(
+                "ALERT MAY HAVE BEEN MISSED: %s could not be delivered via %s (%s)",
+                alert.urgency, ", ".join(failed), alert.title,
+            )
 
         if not self.dry_run and self.browser_opener is not None:
             self.browser_opener.maybe_open(alert)
 
         return DispatchResult(alert=alert, channel_results=results)
+
+    def _send_with_retries(self, channel, alert: Alert, attempts: int) -> str:
+        last_error = ""
+        for attempt in range(1, attempts + 1):
+            try:
+                channel.send(alert)
+                if attempt > 1:
+                    logger.info("%s succeeded on attempt %d", channel.name, attempt)
+                return "success"
+            except NotificationSendError as exc:
+                last_error = str(exc)
+                logger.warning("%s failed (attempt %d/%d): %s",
+                               channel.name, attempt, attempts, exc)
+            except Exception as exc:  # a channel's own bug must never take down the others
+                last_error = str(exc)
+                logger.exception("%s raised an unexpected error (attempt %d/%d)",
+                                 channel.name, attempt, attempts)
+            if attempt < attempts:
+                time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+        return f"failed: {last_error}"
 
 
 def build_channels(app_config) -> list[NotificationChannel]:

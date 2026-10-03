@@ -42,6 +42,26 @@ BOOKABLE_PHRASES = (
 )
 REGISTER_PHRASES = ("coming soon", "sign up", "register your interest", "register interest")
 
+# Transactional mail from the SAME domain as the on-sale newsletter must never be read
+# as an announcement. On 28 Sept 2026 an order confirmation from
+# confirmation@sciencemuseum.ac.uk ("Thank You for Your Order", "Your tickets for the
+# Science Museum") matched the sender filter, the word "tickets" and the film name, and
+# fired two "Tickets on sale" alerts for tickets the user had just bought themselves.
+# False alarms like that are how a real alert gets ignored.
+#
+# These markers are receipt-shaped and cannot plausibly appear in a marketing
+# announcement, which makes them a safer test than subject wording alone (a genuine
+# email could legitimately be titled "Your tickets for Dune are now on sale").
+DEFAULT_TRANSACTIONAL_MARKERS = (
+    "order number", "total paid", "total due", "your account information",
+    "account number", "password reset", "account was updated",
+    "thank you for registering", "thank you for your order", "booking reference",
+    "this is your receipt", "order confirmation",
+)
+# Belt and braces: the museum sends announcements from no-reply@ and receipts from
+# confirmation@, so the local part is itself a reliable discriminator.
+DEFAULT_SENDER_EXCLUDES = ("confirmation@", "noreply-order@", "receipts@", "no-reply-order@")
+
 # Anchor text that marks a real booking link, as opposed to a social/footer link.
 DEFAULT_BOOKING_TEXT_MARKERS = (
     "book tickets", "book now", "buy tickets", "check ticket availability",
@@ -208,6 +228,12 @@ class ImapNewsletterAdapter(Adapter):
         text_markers = tuple(
             m.lower() for m in imap_conf.get("booking_text_markers", DEFAULT_BOOKING_TEXT_MARKERS)
         )
+        transactional_markers = tuple(
+            m.lower() for m in imap_conf.get("transactional_markers", DEFAULT_TRANSACTIONAL_MARKERS)
+        )
+        sender_excludes = tuple(
+            s.lower() for s in imap_conf.get("sender_exclude", DEFAULT_SENDER_EXCLUDES)
+        )
         href_patterns = tuple(p.lower() for p in imap_conf.get("booking_link_patterns", []))
 
         host = os.environ.get("DUNE_WATCH_IMAP_HOST")
@@ -236,8 +262,21 @@ class ImapNewsletterAdapter(Adapter):
                     if status != "OK" or not msg_data or msg_data[0] is None:
                         continue
                     msg = email.message_from_bytes(msg_data[0][1])
+                except (imaplib.IMAP4.abort, OSError) as exc:
+                    # The connection died mid-scan. Everything after this UID is
+                    # unread, so returning what we have would look like a successful
+                    # poll that happened to find nothing - and if the on-sale email was
+                    # in the unread remainder we would never alert on it. Observed in
+                    # the wild as a run of "[Errno 32] Broken pipe" warnings followed by
+                    # a recorded success. Fail the poll instead so it retries and
+                    # source_health notices.
+                    raise AdapterFetchError(
+                        f"IMAP connection lost while fetching uid={uid!r} "
+                        f"({len(listings)} of {len(uids)} messages scanned): {exc}"
+                    ) from exc
                 except Exception as exc:
-                    logger.warning("Failed to parse IMAP message uid=%s: %s", uid, exc)
+                    # A single malformed message is not a reason to abandon the scan.
+                    logger.warning("Skipping unparseable IMAP message uid=%s: %s", uid, exc)
                     continue
 
                 message_id = msg.get("Message-ID") or f"uid-{uid.decode(errors='replace')}"
@@ -246,6 +285,9 @@ class ImapNewsletterAdapter(Adapter):
 
                 if sender_filter and not any(s in from_addr for s in sender_filter):
                     continue
+                if any(x in from_addr for x in sender_excludes):
+                    logger.debug("Skipping transactional sender %r (%s)", from_addr, subject)
+                    continue
 
                 body_text, anchors = _extract_body_and_anchors(msg)
                 haystack = f"{subject}\n{body_text}".lower()
@@ -253,6 +295,10 @@ class ImapNewsletterAdapter(Adapter):
                 if subject_keywords and not any(k in haystack for k in subject_keywords):
                     continue
                 if film_keywords and not matches_any(haystack, film_keywords):
+                    continue
+                if any(marker in haystack for marker in transactional_markers):
+                    # A receipt for tickets you already hold, not an announcement.
+                    logger.info("Skipping transactional email: %s", subject)
                     continue
 
                 listings.extend(

@@ -103,3 +103,67 @@ def test_browser_opener_noop_when_disabled(mocker):
     opener = BrowserOpener(enabled=False, min_urgency="INFO")
     opener.maybe_open(make_alert(urgency="CRITICAL"))
     mock_open.assert_not_called()
+
+
+# --- Delivery retries --------------------------------------------------------------
+# Gmail SMTP and ntfy both fail transiently (observed: "Connection unexpectedly closed:
+# [Errno 54]" mid-run). For a one-shot on-sale, a dropped notification is the exact
+# failure this tool exists to prevent, so important alerts get retried.
+
+class FlakyChannel:
+    def __init__(self, name="flaky", fail_times=1):
+        self.name = name
+        self.fail_times = fail_times
+        self.attempts = 0
+
+    def send(self, alert):
+        self.attempts += 1
+        if self.attempts <= self.fail_times:
+            raise NotificationSendError(f"transient failure {self.attempts}")
+
+
+def _alert(urgency="CRITICAL"):
+    return Alert(
+        listing_key="k", venue_id="v", venue_name="V", film_title="Dune: Part Three",
+        show_date=None, show_time=None, format_label=None, booking_link=None,
+        event_type="on_sale_detected", urgency=urgency,
+    )
+
+
+def test_critical_alert_is_retried_until_it_lands():
+    channel = FlakyChannel(fail_times=2)
+    result = Dispatcher(channels=[channel]).dispatch(_alert("CRITICAL"))
+    assert channel.attempts == 3
+    assert result.channel_results["flaky"] == "success"
+
+
+def test_high_alert_is_retried_too():
+    channel = FlakyChannel(fail_times=1)
+    result = Dispatcher(channels=[channel]).dispatch(_alert("HIGH"))
+    assert channel.attempts == 2
+    assert result.channel_results["flaky"] == "success"
+
+
+def test_info_alert_is_not_retried():
+    """The daily status comes round again tomorrow; retrying it is pure noise."""
+    channel = FlakyChannel(fail_times=1)
+    result = Dispatcher(channels=[channel]).dispatch(_alert("INFO"))
+    assert channel.attempts == 1
+    assert result.channel_results["flaky"].startswith("failed:")
+
+
+def test_permanent_failure_is_reported_after_exhausting_retries(caplog):
+    channel = FlakyChannel(fail_times=99)
+    with caplog.at_level("ERROR"):
+        result = Dispatcher(channels=[channel]).dispatch(_alert("CRITICAL"))
+    assert channel.attempts == 3
+    assert result.channel_results["flaky"].startswith("failed:")
+    # A silently undelivered CRITICAL is the worst outcome, so it must be loud in the log.
+    assert any("ALERT MAY HAVE BEEN MISSED" in r.message for r in caplog.records)
+
+
+def test_one_failing_channel_does_not_block_another():
+    good, bad = FlakyChannel(name="good", fail_times=0), FlakyChannel(name="bad", fail_times=99)
+    result = Dispatcher(channels=[bad, good]).dispatch(_alert("CRITICAL"))
+    assert result.channel_results["good"] == "success"
+    assert result.channel_results["bad"].startswith("failed:")

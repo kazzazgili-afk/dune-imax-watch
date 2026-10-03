@@ -274,3 +274,111 @@ def test_duplicate_uids_across_sender_searches_are_fetched_once(mocker, monkeypa
     listings = ImapNewsletterAdapter(make_science_museum_venue(), make_app_config()).fetch()
     # Two showtimes from one email, not four from a doubled UID.
     assert len(listings) == 2
+
+
+def test_own_order_confirmation_is_not_an_on_sale(mocker, monkeypatch, load_fixture_email):
+    """Regression for the 28 Sept 2026 false alarm.
+
+    An order confirmation from confirmation@sciencemuseum.ac.uk matched the sender
+    filter, the subject keyword "tickets" and the film name, so the watcher reported the
+    user's own purchase back to them as "Tickets on sale" - twice, including a bogus
+    23:15 showtime scraped from the order timestamp. False alarms on the channel that
+    matters are how a real alert gets ignored.
+    """
+    setup_imap_env(monkeypatch)
+    raw = load_fixture_email("science_museum_order_confirmation.eml")
+    mocker.patch("imaplib.IMAP4_SSL", return_value=FakeImap({b"1": raw}))
+
+    listings = ImapNewsletterAdapter(make_science_museum_venue(), make_app_config()).fetch()
+    assert listings == []
+
+
+def test_real_announcement_still_passes_with_the_exclusions_active(mocker, monkeypatch, load_fixture_email):
+    """The exclusions must not be so broad that they swallow the thing we are waiting
+    for. The genuine announcement comes from no-reply@, not confirmation@, and carries
+    no receipt markers."""
+    setup_imap_env(monkeypatch)
+    raw = load_fixture_email("science_museum_onsale_2026-09-09.eml")
+    mocker.patch("imaplib.IMAP4_SSL", return_value=FakeImap({b"1": raw}))
+
+    listings = ImapNewsletterAdapter(make_science_museum_venue(), make_app_config()).fetch()
+    assert len(listings) == 2
+    assert all(l.availability == "bookable" for l in listings)
+
+
+@pytest.mark.parametrize("subject,body,expected_skip", [
+    ("Your tickets for the Science Museum in London", "Order Number: 123 Dune IMAX 70mm", True),
+    ("Password Reset Request", "Dune IMAX reset your password", True),
+    ("Your Account Was Updated", "Your Account Information Dune IMAX", True),
+    # An announcement that happens to be phrased like a receipt subject must survive,
+    # because it carries no receipt markers in the body.
+    ("Your tickets for Dune: Part Three are now on sale", "Book tickets for Dune IMAX 70mm", False),
+])
+def test_transactional_markers_target_receipts_not_wording(
+    subject, body, expected_skip, mocker, monkeypatch
+):
+    setup_imap_env(monkeypatch)
+    raw = (
+        f"Message-ID: <t-{abs(hash(subject))}@example.invalid>\r\n"
+        f"From: Science Museum <no-reply@sciencemuseum.ac.uk>\r\n"
+        f"To: kazzazgili@gmail.com\r\n"
+        f"Subject: {subject}\r\n"
+        f"Date: Mon, 28 Sep 2026 23:19:05 +0100\r\n"
+        f"Content-Type: text/plain; charset=\"utf-8\"\r\n\r\n{body}\r\n"
+    ).encode()
+    mocker.patch("imaplib.IMAP4_SSL", return_value=FakeImap({b"1": raw}))
+
+    listings = ImapNewsletterAdapter(make_science_museum_venue(), make_app_config()).fetch()
+    assert (listings == []) is expected_skip
+
+
+def test_confirmation_sender_is_excluded_even_without_receipt_markers(mocker, monkeypatch):
+    setup_imap_env(monkeypatch)
+    raw = (
+        b"Message-ID: <conf-1@example.invalid>\r\n"
+        b"From: Science Museum <confirmation@sciencemuseum.ac.uk>\r\n"
+        b"To: kazzazgili@gmail.com\r\n"
+        b"Subject: Dune: Part Three IMAX 70mm tickets are on sale\r\n"
+        b"Date: Mon, 28 Sep 2026 23:19:05 +0100\r\n"
+        b"Content-Type: text/plain; charset=\"utf-8\"\r\n\r\nBook tickets now.\r\n"
+    )
+    mocker.patch("imaplib.IMAP4_SSL", return_value=FakeImap({b"1": raw}))
+    assert ImapNewsletterAdapter(make_science_museum_venue(), make_app_config()).fetch() == []
+
+
+def test_connection_lost_mid_scan_fails_the_poll(mocker, monkeypatch, load_fixture_email):
+    """A dropped connection must not look like a successful empty poll.
+
+    Seen in the wild: a run of "[Errno 32] Broken pipe" warnings, one per remaining
+    message, followed by the cycle being recorded as a success. Every UID after the
+    break went unread, so if the on-sale email was in that remainder it would never
+    have been alerted on - and source_health would show the venue as healthy.
+    """
+    setup_imap_env(monkeypatch)
+
+    class DyingImap(FakeImap):
+        def fetch(self, uid, spec):
+            raise OSError(32, "Broken pipe")
+
+    mocker.patch(
+        "imaplib.IMAP4_SSL",
+        return_value=DyingImap({b"1": load_fixture_email("bfi_onsale_announcement.eml")}),
+    )
+    with pytest.raises(AdapterFetchError, match="connection lost"):
+        ImapNewsletterAdapter(make_venue(), make_app_config()).fetch()
+
+
+def test_one_unparseable_message_does_not_abandon_the_scan(mocker, monkeypatch, load_fixture_email):
+    """A single malformed message is different from a dead connection: keep going."""
+    setup_imap_env(monkeypatch)
+    good = load_fixture_email("bfi_onsale_announcement.eml")
+
+    class PartlyBadImap(FakeImap):
+        def fetch(self, uid, spec):
+            if uid == b"1":
+                raise ValueError("malformed header")
+            return super().fetch(uid, spec)
+
+    mocker.patch("imaplib.IMAP4_SSL", return_value=PartlyBadImap({b"1": b"garbage", b"2": good}))
+    listings = ImapNewsletterAdapter(make_venue(), make_app_config()).fetch()
+    assert len(listings) == 1

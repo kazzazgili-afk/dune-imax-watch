@@ -12,6 +12,7 @@ from typing import Optional
 from dune_watch.adapters.base import AdapterFetchError
 from dune_watch.adapters.registry import build_adapter
 from dune_watch.config import AppConfig, VenueConfig
+from dune_watch.engine.daily_status import maybe_send_daily_status
 from dune_watch.engine.diff import build_alert, classify_transition
 from dune_watch.engine.state_store import StateStore
 from dune_watch.models import Alert, BatchContext
@@ -147,6 +148,13 @@ def run_poll_cycle(
         if only_venue_ids and venue.id not in only_venue_ids:
             continue
         all_alerts.extend(poll_venue(venue, app_config, store, dispatcher))
+
+    # After polling, so the status reflects this cycle's results. Skipped when the run
+    # was restricted to specific venues, since that is a manual spot-check.
+    if not only_venue_ids:
+        status = maybe_send_daily_status(app_config, store, dispatcher)
+        if status is not None:
+            all_alerts.append(status)
     return all_alerts
 
 
@@ -186,6 +194,7 @@ def run_loop(
                 next_due[venue.id] = time.monotonic() + interval + random.uniform(0, jitter_cap)
 
             _maybe_alert_heartbeat_stale(app_config, store, dispatcher)
+            maybe_send_daily_status(app_config, store, dispatcher)
             time.sleep(1)
     except KeyboardInterrupt:
         logger.info("Loop stopped by user")

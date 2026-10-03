@@ -173,6 +173,36 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_daily_status(args: argparse.Namespace) -> int:
+    """Send (or just print) the daily 'watcher is live' report on demand."""
+    logger = setup_logging()
+    try:
+        app_config = load_config(args.config)
+    except ConfigError as exc:
+        logger.error("Config error: %s", exc)
+        return 1
+
+    from dune_watch.engine.daily_status import build_status_body, maybe_send_daily_status
+
+    store = StateStore(app_config.state_db_path)
+    try:
+        if args.dry_run:
+            print(build_status_body(
+                app_config, store, app_config.notifications.daily_status_timezone
+            ))
+            return 0
+        alert = maybe_send_daily_status(
+            app_config, store, _build_dispatcher(app_config, dry_run=False), force=args.force
+        )
+        if alert is None:
+            print("Already sent today (or daily_status is disabled). Use --force to send anyway.")
+        else:
+            print(f"{alert.title}\n{alert.body}")
+    finally:
+        store.close()
+    return 0
+
+
 def cmd_robots_check(args: argparse.Namespace) -> int:
     """Print, per venue, what robots.txt permits and the interval that results.
 
@@ -361,6 +391,17 @@ def build_parser() -> argparse.ArgumentParser:
     status_p = sub.add_parser("status", help="Show last poll results and current listings")
     status_p.add_argument("--config", default=DEFAULT_CONFIG_PATH)
     status_p.set_defaults(func=cmd_status)
+
+    daily_p = sub.add_parser(
+        "daily-status",
+        help="Send the once-a-day 'watcher is live' report (or print it with --dry-run)",
+    )
+    daily_p.add_argument("--config", default=DEFAULT_CONFIG_PATH)
+    daily_p.add_argument("--force", action="store_true",
+                         help="Send even if today's report has already gone out")
+    daily_p.add_argument("--dry-run", action="store_true",
+                         help="Print the report without sending it anywhere")
+    daily_p.set_defaults(func=cmd_daily_status)
 
     robots_p = sub.add_parser(
         "robots-check",

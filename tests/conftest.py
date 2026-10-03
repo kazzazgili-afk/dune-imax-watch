@@ -57,3 +57,16 @@ def stub_robots(monkeypatch):
     # The module-level cache is keyed by User-Agent and would otherwise leak real
     # robots.txt data between tests.
     monkeypatch.setattr(robots_module, "_SHARED", {})
+
+
+@pytest.fixture(autouse=True)
+def no_retry_backoff(monkeypatch):
+    """Keep the suite fast.
+
+    The dispatcher sleeps between delivery retries for HIGH/CRITICAL alerts, which is
+    right in production and pointless in tests. Tests that care about retry *counts*
+    still see every attempt; they just don't wait.
+    """
+    import dune_watch.notify.dispatcher as dispatcher_module
+
+    monkeypatch.setattr(dispatcher_module, "RETRY_BACKOFF_SECONDS", 0)

@@ -68,6 +68,11 @@ class NotificationsConfig:
     channels: dict[str, ChannelConfig]
     auto_open_enabled: bool
     auto_open_min_urgency: str
+    # One "still watching" notification per calendar day, so silence can be told apart
+    # from a watcher that has quietly died.
+    daily_status_enabled: bool = False
+    daily_status_timezone: str = "Europe/London"
+    daily_status_not_before_hour: int = 9
 
 
 @dataclass
@@ -199,10 +204,14 @@ def load_config(path: str | Path) -> AppConfig:
             channels[cname] = channel
 
         auto_open_raw = notif_raw.get("auto_open_booking_link", {})
+        daily_raw = notif_raw.get("daily_status", {}) or {}
         notifications = NotificationsConfig(
             channels=channels,
             auto_open_enabled=bool(auto_open_raw.get("enabled", False)),
             auto_open_min_urgency=auto_open_raw.get("min_urgency", "HIGH"),
+            daily_status_enabled=bool(daily_raw.get("enabled", False)),
+            daily_status_timezone=daily_raw.get("timezone", "Europe/London"),
+            daily_status_not_before_hour=int(daily_raw.get("not_before_hour", 9)),
         )
     except KeyError as exc:
         raise ConfigError(f"Missing required config field: {exc}") from exc

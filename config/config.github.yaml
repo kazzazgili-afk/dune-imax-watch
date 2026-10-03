@@ -110,8 +110,12 @@ notifications:
   # Always INFO, so it never triggers the urgent ntfy priority, the repeat nudges or
   # the browser auto-open that a real on-sale does.
   daily_status:
+    # ON here: this is the only deployment that runs without the laptop being awake.
+    # GitHub throttles scheduled runs to ~6/day with gaps up to 8 hours, which is far
+    # too coarse for polling but perfectly adequate for a once-a-day report - the ping
+    # fires on the first qualifying run of each calendar day, whenever that lands.
     enabled: true
-    timezone: "Asia/Jerusalem"   # your local time, for a predictable-ish morning ping
+    timezone: "Asia/Jerusalem"
     not_before_hour: 9
   auto_open_booking_link:
     enabled: false   # no browser on a GitHub Actions runner
